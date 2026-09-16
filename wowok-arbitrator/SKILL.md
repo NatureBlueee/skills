@@ -1,17 +1,10 @@
 ---
 name: wowok-arbitrator
-description: |
-  WoWok Arbitrator — build and operate on-chain arbitration services.
-  Create Arbitration objects, configure voting rules (open or guard-based weighted),
-  manage dispute cases through their full lifecycle, and earn fees from resolution.
-
-  Core value: achieve trust consensus between merchants and users through
-  transparent, fair, and efficient dispute resolution.
-when_to_use:
-  - User wants to create/configure an Arbitration service
-  - User needs to handle dispute cases and voting processes
-  - User wants to design voter eligibility and weight mechanisms
-  - User mentions "arbitration", "dispute", "voting", "arb", "judge"
+description: "WoWok Arbitrator — build and operate on-chain arbitration services. Create Arbitration objects, configure voting rules (open or guard-based weighted), manage dispute cases through their full lifecycle, and earn fees from resolution. Core value: achieve trust consensus between merchants and users through transparent, fair, and efficient dispute resolution. Use when: User wants to create/configure an Arbitration service; User needs to handle dispute cases and voting processes; User wants to design voter eligibility and weight mechanisms; User mentions \"arbitration\", \"dispute\", \"voting\", \"arb\", \"judge\"."
+metadata:
+  version: "2.0.0"
+  role: arbitrator
+  related: "wowok-order, wowok-messenger"
 ---
 
 # WoWok Arbitrator Guide

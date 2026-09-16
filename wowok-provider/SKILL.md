@@ -1,22 +1,10 @@
 ---
 name: wowok-provider
-description: |
-  WoWok Service Provider — the canonical skill for service providers (merchants, sellers)
-  to build, operate, and manage commercial services on WoWok.
-
-  Covers service design (WIP products, Machine workflows, Allocator strategies),
-  trust mechanisms (compensation funds, arbitration), customer attraction
-  (discounts, rewards, supply chain promises), and order fulfillment.
-
-  For customers placing orders, see wowok-order. For arbitrators, see wowok-arbitrator.
-when_to_use:
-  - User is a service provider/merchant/seller on WoWok
-  - User wants to create a commercial service/marketplace
-  - User wants to design workflow (Machine) for order processing
-  - User wants to set up fund distribution strategies (Allocators)
-  - User wants to configure trust mechanisms (compensation, arbitration)
-  - User wants to handle order fulfillment and customer service
-  - User mentions "create service", "merchant", "seller", "provider", "workflow design", "compensation", "arbitration"
+description: "WoWok Service Provider — the canonical skill for service providers (merchants, sellers) to build, operate, and manage commercial services on WoWok. Covers service design (WIP products, Machine workflows, Allocator strategies), trust mechanisms (compensation funds, arbitration), customer attraction (discounts, rewards, supply chain promises), and order fulfillment. For customers placing orders, see wowok-order. For arbitrators, see wowok-arbitrator. Use when: User is a service provider/merchant/seller on WoWok; User wants to create a commercial service/marketplace; User wants to design workflow (Machine) for order processing; User wants to set up fund distribution strategies (Allocators); User wants to configure trust mechanisms (compensation, arbitration); User wants to handle order fulfillment and customer service; User mentions \"create service\", \"merchant\", \"seller\", \"provider\", \"workflow design\", \"compensation\", \"arbitration\"."
+metadata:
+  version: "2.0.0"
+  role: provider
+  related: "wowok-machine, wowok-messenger"
 ---
 
 # WoWok Service Provider Guide

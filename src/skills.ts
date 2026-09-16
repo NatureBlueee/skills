@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Skill, SkillConfig, SkillRole, RoleSkills, SkillMode } from './types';
+import { LEGACY_SKILL_NAMES, SKILL_MIGRATION_TARGETS } from './targets';
 
 /**
  * WoWok Skills organized by role (post GLM5-31 sink refactor)
@@ -53,23 +54,16 @@ import { Skill, SkillConfig, SkillRole, RoleSkills, SkillMode } from './types';
  * Skills removed in the GLM5-31 sink refactor. Their content lives in the MCP
  * knowledge layer and is served via schema_query / industry_pack_operation — no skill
  * installation required. Kept here for migration detection (checkSkillMigration).
+ *
+ * The list itself lives in src/targets.ts (single source of truth shared with
+ * the installer, which deletes these directories when it finds them).
  */
-export const DEPRECATED_SKILLS = [
-  'wowok-safety',
-  'wowok-tools',
-  'wowok-scenario',
-  'wowok-guard',
-] as const;
+export const DEPRECATED_SKILLS = LEGACY_SKILL_NAMES;
 
 export type DeprecatedSkill = (typeof DEPRECATED_SKILLS)[number];
 
 /** Where each deprecated skill's content now lives (for migration messages). */
-export const SKILL_MIGRATION_MAP: Record<DeprecatedSkill, string> = {
-  'wowok-safety': "MCP schema_query action='get_safety_rules' (+ runtime confirm-gate on every on-chain write)",
-  'wowok-tools': "MCP schema_query action='get_tool_reference'",
-  'wowok-scenario': "MCP industry_pack_operation action='recommend_industry' / 'list_modes' (industry mode registry)",
-  'wowok-guard': "MCP schema_query action='get_guard_design_patterns' (+ action='get_guard_templates')",
-};
+export const SKILL_MIGRATION_MAP: Record<string, string> = SKILL_MIGRATION_TARGETS;
 
 export const wowokSkills: SkillConfig = {
   skills: [
@@ -199,11 +193,10 @@ export const wowokSkills: SkillConfig = {
 //
 // Every accessor resolves the skill list from the PACKAGE DIRECTORY AT
 // RUNTIME (each `<name>/SKILL.md` frontmatter merged over the compiled
-// `wowokSkills` metadata). Because consumers (the agent sidecar via the
-// `@wowok/skills` dependency) reach this package through a junction to the
-// repo working tree, edits to SKILL.md files — content, description, or a
-// brand-new skill folder — take effect within the cache TTL WITHOUT any
-// rebuild.
+// `wowokSkills` metadata), so a refreshed install is picked up within the
+// cache TTL without a rebuild. NOTE: when this package is consumed through a
+// `file:` dependency, package managers materialise a COPY (pnpm store), so
+// SKILL.md edits require `pnpm install --force` in the consumer to appear.
 
 const RUNTIME_SCAN_TTL_MS = 3_000;
 let runtimeCache: Skill[] | null = null;
@@ -218,54 +211,94 @@ const VALID_ROLES: readonly SkillRole[] = [
   'customer', 'provider', 'supplier', 'collaborator', 'arbitrator', 'shared',
 ];
 
-/**
- * Minimal YAML frontmatter reader — supports the fields this registry needs
- * (`name`, `description` incl. `|` block scalars, `version`, `role`,
- * `loading`, `related`, `always`). No external YAML dependency.
- */
-function parseFrontmatter(raw: string): Record<string, any> {
-  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!m) return {};
-  const out: Record<string, any> = {};
-  const lines = m[1].split(/\r?\n/);
-  let key: string | null = null;
-  let block: string[] | null = null;
-  const flush = (): void => {
-    if (key && block) out[key] = block.join('\n').trim();
-    key = null;
-    block = null;
-  };
-  for (const line of lines) {
-    const listItem = line.match(/^\s+-\s+(.*)$/);
-    if (key && block && listItem) {
-      block.push(listItem[1].trim());
-      continue;
-    }
-    const kv = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
-    if (!kv) {
-      // Continuation of a `|` block scalar.
-      if (key && block && line.startsWith(' ')) block.push(line.trim());
-      continue;
-    }
-    flush();
-    key = kv[1];
-    const val = kv[2].trim();
-    if (val === '|' || val === '|-' || val === '') {
-      block = [];
-    } else {
-      out[key] = val;
-      key = null;
-    }
+/** Strip optional surrounding quotes from a scalar value. */
+function unquote(value: string): string {
+  const v = value.trim();
+  if (v.length >= 2) {
+    const quoted =
+      (v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"));
+    if (quoted) return v.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
   }
-  flush();
-  return out;
+  return v;
+}
+
+interface Frontmatter {
+  /** Top-level scalar fields. */
+  fields: Record<string, string>;
+  /** Nested `metadata:` map (the spec-blessed place for custom attributes). */
+  metadata: Record<string, string>;
+}
+
+/**
+ * Minimal YAML frontmatter reader. It only has to understand the shapes our
+ * SKILL.md files are allowed to use (enforced by scripts/validate-skills.mjs):
+ *
+ *   name: <scalar>
+ *   description: <quoted scalar | literal block `|` | folded block `>`>
+ *   metadata:
+ *     version: <scalar>
+ *     role: <scalar>
+ *     loading: <scalar>
+ *     related: <comma-separated scalar>
+ *
+ * No external YAML dependency.
+ */
+function parseFrontmatter(raw: string): Frontmatter {
+  const result: Frontmatter = { fields: {}, metadata: {} };
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return result;
+
+  let blockKey: string | null = null;
+  let blockLines: string[] = [];
+  let inMetadata = false;
+
+  const flushBlock = (): void => {
+    if (blockKey && blockKey !== 'metadata') {
+      result.fields[blockKey] = blockLines.join(' ').trim().replace(/\s+/g, ' ');
+    }
+    blockKey = null;
+    blockLines = [];
+  };
+
+  for (const line of m[1].split(/\r?\n/)) {
+    const top = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (top) {
+      flushBlock();
+      inMetadata = false;
+      const key = top[1];
+      const value = top[2].trim();
+      if (key === 'metadata' && value === '') {
+        inMetadata = true;
+        continue;
+      }
+      if (value === '' || /^[|>][-+]?$/.test(value)) {
+        blockKey = key;
+        blockLines = [];
+      } else {
+        result.fields[key] = unquote(value);
+      }
+      continue;
+    }
+    const nested = line.match(/^\s+([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (inMetadata && nested) {
+      result.metadata[nested[1]] = unquote(nested[2]);
+      continue;
+    }
+    if (blockKey) blockLines.push(line.trim());
+  }
+  flushBlock();
+  return result;
 }
 
 function coerceRelated(v: any): string[] | undefined {
   if (Array.isArray(v)) return v.map(String);
   if (typeof v === 'string') {
     const stripped = v.replace(/^\[[\s\S]*\]$/, (m) => m.slice(1, -1));
-    const parts = stripped.split(/[\s,]+/).filter(Boolean);
+    // `-,` empties appear when an old-format YAML list is read as a block scalar.
+    const parts = stripped
+      .split(/[\s,]+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0 && p !== '-');
     return parts.length ? parts : undefined;
   }
   return undefined;
@@ -288,28 +321,31 @@ function scanSkillDirectories(): Skill[] {
     const file = path.join(root, name, 'SKILL.md');
     if (!fs.existsSync(file)) continue;
     const compiledEntry = compiled.get(name);
-    let fm: Record<string, any> = {};
+    let fm: Frontmatter = { fields: {}, metadata: {} };
     try {
       fm = parseFrontmatter(fs.readFileSync(file, 'utf-8'));
     } catch {
-      fm = {};
+      fm = { fields: {}, metadata: {} };
     }
-    const role = VALID_ROLES.includes(fm.role)
-      ? (fm.role as SkillRole)
-      : compiledEntry?.role ?? 'shared';
+    const { fields, metadata } = fm;
+    const roleValue = (metadata.role || fields.role) as SkillRole;
+    const role = VALID_ROLES.includes(roleValue) ? roleValue : compiledEntry?.role ?? 'shared';
     const loading: 'always' | 'on-demand' =
-      fm.always === true || fm.always === 'true' || fm.loading === 'always'
+      metadata.loading === 'always' ||
+      fields.loading === 'always' ||
+      metadata.always === 'true' ||
+      fields.always === 'true'
         ? 'always'
         : compiledEntry?.loading ?? 'on-demand';
     merged.push({
       name,
-      description: typeof fm.description === 'string' && fm.description.trim()
-        ? fm.description.trim().replace(/\s+/g, ' ')
+      description: fields.description?.trim()
+        ? fields.description.trim().replace(/\s+/g, ' ')
         : compiledEntry?.description ?? '',
-      version: typeof fm.version === 'string' ? fm.version : compiledEntry?.version ?? '1.0.0',
+      version: metadata.version || fields.version || compiledEntry?.version || '1.0.0',
       role,
       loading,
-      related: coerceRelated(fm.related) ?? compiledEntry?.related ?? [],
+      related: coerceRelated(metadata.related ?? fields.related) ?? compiledEntry?.related ?? [],
     });
   }
   // Keep compiled-only entries that have no folder (defensive; normally all

@@ -1,203 +1,227 @@
 # WoWok Skills
 
-WoWok AI Skills for Claude Code, OpenAI Codex, ChatGPT Desktop (Codex Mode), Trae IDE, CodeBuddy, Cursor, Windsurf, Qoder, Roo Code, and GitHub Copilot — Helping AI use WoWok MCP tools correctly.
+WoWok AI Skills for **Claude Code, OpenAI Codex CLI / ChatGPT Desktop (Codex mode), Trae, Cursor, Windsurf, CodeBuddy, Qoder, Roo Code, Cline, Kilo Code and GitHub Copilot** — a dialogue-orchestration layer on top of the WoWok MCP server.
 
-## Supported AI Clients
+One command installs the skills into every supported client **and** registers the MCP server:
 
-| Client | Skills Directory | Format | MCP Support |
-|--------|-----------------|--------|-------------|
-| **Claude Code** | `.claude/skills/` | SKILL.md (native) | ✅ `~/.claude/settings.json` |
-| **OpenAI Codex CLI** | `.codex/skills/` | SKILL.md (native) | ✅ `~/.codex/config.toml` |
-| **ChatGPT Desktop (Codex Mode)** | `.codex/skills/` | SKILL.md (native) | ✅ Shares Codex CLI config |
-| **Trae IDE** | `.agents/skills/` | SKILL.md (native) | ⚙️ IDE-managed via `~/.trae-cn/mcps/` |
-| **CodeBuddy** | `.codebuddy/skills/` | SKILL.md (native) | ✅ `~/.codebuddy/mcp.json` |
-| **Cursor IDE** | `.cursor/rules/` | `.mdc` (frontmatter adapted) | ✅ Project-level `.cursor/mcp.json` |
-| **Windsurf** | `.windsurf/skills/` | SKILL.md (native) | ✅ `~/.codeium/windsurf/mcp_config.json` |
-| **Qoder** | `.qoder/skills/` | SKILL.md (native) | ✅ Global + project config |
-| **Roo Code** | `.roo/skills/` | SKILL.md (native) | ✅ Global + project config |
-| **GitHub Copilot** | `.github/prompts/` | `.prompt.md` (plain markdown) | ✅ `~/.copilot/mcp-config.json` |
+```bash
+npm install -g @wowok/skills
+wowok-skills doctor        # verify what each client can actually see
+```
 
-> **Format notes**: For Cursor, the YAML frontmatter is adapted to `description` + `alwaysApply`. For Copilot, frontmatter is stripped — pure Markdown instructions.
->
-> **ChatGPT Desktop (Chat Mode)** does **not** support local skills or stdio MCP. Only the **Codex Mode** (built into ChatGPT Desktop) inherits Codex CLI's skills and MCP configuration.
+> **v3.1.0 — installation was rebuilt around each client's official documentation.**
+> Previous versions wrote to directories several clients never read (`.codex/skills`, `.windsurf/skills`, `~/.github/prompts`), registered MCP in the wrong file for Claude Code, and used a bare `npx` command that cannot start on native Windows. Everything below reflects the verified layout. If you installed an older version, run `wowok-skills init --force` once.
 
-## How It Works
+## Supported clients
 
-Each skill is a `SKILL.md` file with YAML frontmatter. The installer copies them to **every** client's skills directory automatically. MCP server is installed and registered — no manual steps.
+Every skill is a directory containing `SKILL.md` (YAML frontmatter + Markdown), the portable [Agent Skills](https://agentskills.io/specification) format.
+
+| Client | User-scope skills | Project-scope skills | MCP config |
+|--------|-------------------|----------------------|------------|
+| **Cross-client** (read by Codex, Cursor, Windsurf, Roo, Kilo, Trae*) | `~/.agents/skills/` | `.agents/skills/` | — |
+| **Claude Code** | `~/.claude/skills/` | `.claude/skills/` | `~/.claude.json` (user) · `.mcp.json` (project) |
+| **OpenAI Codex CLI / ChatGPT Codex mode** | `~/.agents/skills/` **+** `~/.codex/skills/` | `.agents/skills/` | `~/.codex/config.toml` · `.codex/config.toml` |
+| **Trae (CN & international)** | `~/.trae-cn/skills/` (CN) · `~/.trae/skills/` (intl) | `.trae/skills/` | `<user-data>/User/mcp.json` · `.trae/mcp.json` |
+| **Cursor** | `~/.cursor/skills/` | `.cursor/skills/` | `~/.cursor/mcp.json` · `.cursor/mcp.json` |
+| **Windsurf (Cascade)** | `~/.codeium/windsurf/skills/` | `.windsurf/skills/` | `~/.codeium/windsurf/mcp_config.json` |
+| **CodeBuddy** | `~/.codebuddy/skills/` | `.codebuddy/skills/` | `~/.codebuddy/.mcp.json` · `.mcp.json` |
+| **Qoder** | `~/.qoder/skills/` | `.qoder/skills/` | `~/.qoder/settings.json` · `.mcp.json` |
+| **Roo Code** | `~/.roo/skills/` | `.roo/skills/` | VS Code globalStorage (Roo extension) · `.roo/mcp.json` |
+| **Cline** | `~/.cline/skills/` | `.cline/skills/` | `~/.cline/mcp.json` + VS Code globalStorage |
+| **Kilo Code** | `~/.kilo/skills/` | `.kilo/skills/` | VS Code globalStorage · see note |
+| **GitHub Copilot** | `~/.copilot/skills/` | `.github/skills/` | `~/.copilot/mcp-config.json` · `.github/mcp.json` |
+
+Notes that are not automatic:
+
+- **Trae** reads `.agents/skills/` only after you enable *Settings → Skills & Commands → enable the `.agents` skills directory*. The installer also writes Trae's own global root, so this is optional.
+- **Kilo Code (new platform)** keeps MCP in `~/.config/kilo/kilo.jsonc` under the `mcp` key. If that file exists the installer leaves it alone (rewriting would drop your comments) and prints a manual instruction; otherwise it writes `~/.config/kilo/kilo.json` for you.
+- **Windsurf / Roo / Cline / Kilo**: for transport reasons their MCP config is only registered for the files that already exist on your machine. Install the client first, then re-run `wowok-skills init`.
+- **ChatGPT Desktop (Chat mode)** supports neither local skills nor stdio MCP. Only Codex mode inherits the Codex CLI configuration.
+
+## How it works
 
 ```
 npm install -g @wowok/skills
        │
-       ├── postinstall ──→ Copies SKILL.md to ALL client skill dirs
-       │                     (~/.claude/skills/, ~/.cursor/rules/, ~/.agents/skills/, …)
-       └── auto MCP   ──→ Installs/upgrades @wowok/agent-mcp
-                           Registers MCP in each client config
-                           Restarts MCP server process
-                           AI discovers on next session ✅
+       ├── postinstall ──→ writes SKILL.md to every target (hash-based, idempotent)
+       │                   prunes skills this version no longer ships
+       │                   removes deprecated skills (wowok-guard/tools/safety/scenario)
+       │                   removes pre-3.1 artifacts (cursor `.mdc` rules, .prompt.md files)
+       │
+       └── MCP server ───→ installs/upgrades @wowok/agent-mcp globally
+                           registers a Windows-safe launcher in each client config
+                           prefers `node <abs>/@wowok/agent-mcp/dist/index.js`
+                           falls back to `cmd /c npx -y @wowok/agent-mcp` on Windows
 ```
 
-**Two loading modes:**
+Each target root gets a `.wowok-skills.json` manifest recording the version and a hash per skill, which is what makes refreshes, pruning and `doctor` possible.
+
+**Loading modes**
 
 | Mode | Skills | Behavior |
 |------|--------|----------|
-| **Always** | `wowok-output` | Metadata always in prompt (~100 tokens). AI auto-loads full content when needed. |
-| **On-demand** | All others | AI matches description to task. Only loaded when relevant. |
+| **Always** | `wowok-output` | Metadata always in the prompt (`metadata.loading: always`). |
+| **On-demand** | All others | The client matches the `description` against the task. |
 
-> **v2.0 migration**: The 4 rule-reference skills (`wowok-tools`, `wowok-safety`, `wowok-scenario`, `wowok-guard`) were sunk into the MCP knowledge layer and are no longer installed. Their content is served by the MCP server itself — `schema_query` actions `get_tool_reference` / `get_safety_rules` / `get_guard_design_patterns`, and `industry_pack_operation` actions.
+> **Portability rule**: frontmatter contains exactly `name`, `description` and `metadata`. Custom attributes (version, role, loading, related) live under `metadata:` because the spec — and the strict paths used by claude.ai uploads, the Skills API and Copilot — reject unknown top-level keys. Trigger guidance belongs in `description`, since almost every client matches on that field alone.
 
-## Quick Start
+## Quick start
 
-### Step 1 — Install Globally (Personal Use)
-
-One command. Skills install to **all 11 supported AI clients** at once. MCP server auto-installs and registers.
+### 1 — Install globally (personal use)
 
 ```bash
 npm install -g @wowok/skills
 ```
 
-That's it. Next session in any AI client, WoWok on-chain actions work out of the box.
-
-> Rarely needed: to install only a subset of clients, set `WOWOK_SKILLS_TARGETS=claude,trae npm install -g @wowok/skills`.
-> Set `WOWOK_SKILLS_NO_MCP=1` to skip MCP auto-management.
-
-### Step 2 — Install into Your Project (Team Sharing, Optional)
-
-Add skills to the repo itself. Commit to git — the whole team gets the same pack automatically.
+That's it: skills go to all targets and the MCP server is registered. Next session, WoWok on-chain actions work out of the box.
 
 ```bash
-npm install -g @wowok/skills   # skip if already done
-cd your-project
-
-# All clients (default, recommended):
-wowok-skills init
-
-# Single client only (pick one):
-wowok-skills init --target claude
-wowok-skills init --target cursor
-wowok-skills init --target trae
-wowok-skills init --target codex
-wowok-skills init --target windsurf
-wowok-skills init --target codebuddy
-wowok-skills init --target qoder
-wowok-skills init --target roo
-wowok-skills init --target cline
-wowok-skills init --target kilo
-wowok-skills init --target copilot
+wowok-skills doctor     # per-client: skills fresh/stale/missing + MCP registration
 ```
 
-## Managing Skills
+Rarely needed knobs:
+
+```bash
+WOWOK_SKILLS_TARGETS=claude,trae npm install -g @wowok/skills   # subset of clients
+WOWOK_SKILLS_NO_MCP=1 npm install -g @wowok/skills              # skills only
+WOWOK_REFERRER=<addr|name> npm install -g @wowok/skills         # save the airdrop referrer
+```
+
+### 2 — Install into a project (team sharing, optional)
+
+```bash
+cd your-project
+wowok-skills init                      # all targets, user + project scope
+wowok-skills init --project            # project scope only (commit these)
+wowok-skills init --target claude,cursor --project
+```
+
+Commit the generated directories (`AGENTS.md`-style sharing): every teammate gets the same skills without running anything.
+
+## Managing skills
 
 ### Update
 
 ```bash
-npm update -g @wowok/skills
+npm update -g @wowok/skills            # new CLI → postinstall refreshes every root
+wowok-skills init --force              # force-rewrite all files
 ```
 
 ### Uninstall
 
 ```bash
-# Remove from personal scope:
+wowok-skills uninit                    # remove skills everywhere (user + project)
+wowok-skills uninit --target codex
 npm uninstall -g @wowok/skills
-
-# Remove from project scope:
-cd your-project
-wowok-skills uninit                # all clients (default)
-wowok-skills uninit --target claude
 ```
 
-### Check What's Installed
+> `npm uninstall` alone cannot clean up: **npm v7+ never runs `preuninstall`/`uninstall` scripts**, so removal is always an explicit `wowok-skills uninit`. MCP config entries are left in place and can be deleted from the client's own MCP panel.
+
+### Inspect
 
 ```bash
 wowok-skills list
 wowok-skills get wowok-provider
 wowok-skills role provider
 wowok-skills recommend "create a service"
+wowok-skills doctor
+wowok-skills targets
 ```
 
-### Save the Airdrop Referrer
-
-The referrer is auto-recorded on your first on-chain interaction. Save it once:
-
-```bash
-# Global (personal) referrer — persists across all projects:
-wowok-skills referrer <address-or-name>
-
-# Or just once during project init:
-wowok-skills init --referrer <address-or-name>
-```
-
-## CLI Reference
+## CLI reference
 
 | Command | Description |
 |---------|-------------|
-| `wowok-skills list` | List all available skills |
+| `wowok-skills list` | List all skills (by role) |
 | `wowok-skills get <name>` | Show skill details |
-| `wowok-skills role <role>` | List skills by role (customer \| provider \| arbitrator \| shared) |
-| `wowok-skills recommend <intent>` | Recommend skills by user intent |
-| `wowok-skills init` | Install to project — all clients (default) |
-| `wowok-skills init --target <t>` | Install to project — one client only |
-| `wowok-skills init --no-mcp` | Install skills only, skip MCP setup |
-| `wowok-skills init --referrer <addr\|name>` | Init + save airdrop referrer |
-| `wowok-skills referrer <addr\|name>` | Save airdrop referrer globally (no project needed) |
-| `wowok-skills uninit` | Remove from project — all clients (default) |
-| `wowok-skills uninit --target <t>` | Remove from project — one client |
+| `wowok-skills role <role>` | Skills for a role (`customer\|provider\|supplier\|collaborator\|arbitrator\|shared`) |
+| `wowok-skills recommend <intent>` | Recommend skills from a user intent |
+| `wowok-skills init` | Install to all targets, user + project scope, and register MCP |
+| `wowok-skills uninit` | Remove installed skills (MCP entries untouched) |
+| `wowok-skills doctor` | Per-client install freshness + MCP registration report |
+| `wowok-skills targets` | Show the target table (ids and project directories) |
+| `wowok-skills referrer <addr\|name>` | Save the airdrop referrer globally |
 
-> `--target <t>` choices: `claude`, `cursor`, `windsurf`, `codebuddy`, `codex`, `trae`, `qoder`, `roo`, `copilot`. Default: all.
+Options: `--target <t>` (comma separated), `--user`, `--project`, `--force`, `--no-mcp`, `--referrer <addr|name>`.
+
+Target ids: `agents`, `claude`, `codex`, `trae`, `cursor`, `windsurf`, `codebuddy`, `qoder`, `roo`, `cline`, `kilo`, `copilot` (default: all).
 
 ## Programmatic API
 
-```typescript
-import { getSkills, getSkillByName } from '@wowok/skills';
+```ts
+import {
+  getSkills,
+  getSkillByName,
+  getSkillBody,
+  CLIENT_TARGETS,
+  installSkillsForTargets,
+  resolveMcpLaunch,
+  statusForTargets,
+} from '@wowok/skills';
 
-const skills = getSkills();
-const providerSkill = getSkillByName('wowok-provider');
+const provider = getSkillByName('wowok-provider');
+const body = getSkillBody('wowok-provider');     // SKILL.md without frontmatter
+installSkillsForTargets(['claude', 'agents'], ['project'], process.cwd());
 ```
 
-## Available Skills
+`CLIENT_TARGETS` in `src/targets.ts` is the single source of truth for skill roots **and** MCP config paths — the installer and the CLI both read it, so they can never drift apart again.
 
-### Always Loaded (1 skill — foundational layer)
+## Available skills
 
-| Skill | Purpose | Role |
-|-------|---------|------|
-| `wowok-output` | Output processing — address resolution, name mapping, amount formatting, data visualization | All Roles |
-
-### On-Demand (11 skills — contextually loaded)
+### Always loaded (1)
 
 | Skill | Purpose | Role |
 |-------|---------|------|
-| `wowok-provider` | Service provider guide — create Service, Machine, Allocators, handle order fulfillment, fork project iteration | Service Provider (Merchant) |
-| `wowok-arbitrator` | Arbitration service — create Arbitration, handle disputes, organize voting, manage fees | Arbitrator |
-| `wowok-order` | Customer order lifecycle — pre-purchase due diligence, consensus building, order creation, progress advancement, arbitration | Customer |
-| `wowok-messenger` | Encrypted messaging — E2E communication, WTS evidence, anti-spam strategy, Contact object lifecycle | All Roles |
-| `wowok-machine` | Machine workflow design — state machines, node/pair/forward graph, immutability rules, dependency-first build order | Service Provider |
-| `wowok-onboard` | First-touch onboarding — 10-round dialogue from zero to first published Service, SQLite-based project pipeline integration | New Users |
-| `wowok-planner` | Planning skill — converts natural language intent into Object Dependency Graph (ODG), industry-mode aware via MCP | All Roles |
-| `wowok-auditor` | Pre-publish audit — Guard completeness, Machine soundness, fund flow correctness, publish readiness | All Roles |
-| `wowok-supplier` | Supplier guide — present service to a Demand (open or gated), fulfill sub-order, collect settlement | Supplier |
-| `wowok-collaborator` | Process collaborator — execute workflow forwards as internal staff or external named operator | Collaborator |
-| `wowok-market` | Market discovery & operations — match_discover/discover_services/discover_demands, arbitration_score, account_events, market_metrics/anti_cheat/market_operations | All Roles |
-| `wowok-governance` | On-chain governance — Permission lifecycle (indexes/roles/entity table), Treasury & Allocation fund stewardship (deposit/withdraw/history audit/unclaimed payments), Personal data boundaries | All Roles |
+| `wowok-output` | Output processing — address resolution, name mapping, amount formatting, data visualization | All |
 
-### Sunk to MCP Knowledge Layer (v2.0 — no longer skills)
+### On-demand (12)
 
-| Former Skill | Now Served By |
+| Skill | Purpose | Role |
+|-------|---------|------|
+| `wowok-provider` | Service provider guide — create Service, Machine, Allocators, order fulfillment, fork iteration | Provider |
+| `wowok-supplier` | Supplier guide — present to a Demand, fulfill sub-orders, collect settlement | Supplier |
+| `wowok-collaborator` | Process collaborators — execute workflow forwards (internal staff / named operators) | Collaborator |
+| `wowok-arbitrator` | Arbitration service — create Arbitration, handle disputes, organize voting, fees | Arbitrator |
+| `wowok-machine` | Machine workflow design — nodes, pairs, forwards, guards, dependency-first build order | Provider |
+| `wowok-order` | Buyer lifecycle — pre-purchase due diligence, order creation, progress, arbitration | Customer |
+| `wowok-messenger` | Encrypted messaging — E2E communication, WTS evidence, anti-spam, Contact lifecycle | All |
+| `wowok-onboard` | First-touch onboarding — business dialogue from zero to the first published Service | New users |
+| `wowok-planner` | Planning — natural-language intent → Object Dependency Graph (ODG) | All |
+| `wowok-auditor` | Pre-publish audit — Guard completeness, Machine soundness, fund flow, readiness | All |
+| `wowok-market` | Market discovery & operations — match/discover, arbitration_score, metrics, anti-cheat | All |
+| `wowok-governance` | Permission / Treasury / Personal governance — indexes, roles, fund stewardship, audit | All |
+
+### Sunk into the MCP knowledge layer (no skill needed)
+
+| Former skill | Now served by |
 |--------------|---------------|
-| `wowok-tools` | MCP `schema_query` action='get_tool_reference' |
-| `wowok-safety` | MCP `schema_query` action='get_safety_rules' + runtime confirm-gate on every write |
-| `wowok-scenario` | MCP `industry_pack_operation` actions 'recommend_industry' / 'list_modes' |
-| `wowok-guard` | MCP `schema_query` actions 'get_guard_design_patterns' / 'get_guard_templates' |
+| `wowok-tools` | MCP `schema_query` action=`get_tool_reference` |
+| `wowok-safety` | MCP `schema_query` action=`get_safety_rules` + the runtime confirm gate on every write |
+| `wowok-scenario` | MCP `industry_pack_operation` actions `recommend_industry` / `list_modes` |
+| `wowok-guard` | MCP `schema_query` actions `get_guard_design_patterns` / `get_guard_templates` |
 
-## Related Projects
-
-- **WoWok Documentation**: [https://github.com/wowok-ai/docs](https://github.com/wowok-ai/docs)
+Directories for these four are detected and deleted on install.
 
 ## Development
 
 ```bash
 npm install
 npm run build
-npm run watch
+npm run check      # tsc + SKILL.md conformance + length budget
+node dist/cli.js doctor
 ```
+
+`npm run check` is what CI runs (see `.github/workflows/ci.yml`), together with an idempotency smoke test of the installer.
+
+Editing skills:
+
+1. Edit `<skill>/SKILL.md` — `name` must equal the directory name, add new skills to `SKILL_NAMES` in `src/targets.ts`.
+2. `npm run check` must pass.
+3. `npm run build && node scripts/install.js` refreshes every client on your machine.
+
+## Related projects
+
+- **WoWok Documentation**: [https://github.com/wowok-ai/docs](https://github.com/wowok-ai/docs)
 
 ## License
 

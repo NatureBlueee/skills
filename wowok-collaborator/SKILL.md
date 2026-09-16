@@ -1,22 +1,10 @@
 ---
 name: wowok-collaborator
-description: |
-  WoWok Collaborator — the canonical skill for process collaborators who execute
-  workflow forwards on behalf of a merchant: internal staff (permission entities)
-  and external operators (named operators).
-
-  Covers permission-index and named-operator routing, guard-gated evidence
-  submission, and reputation protection. The collaborator carries PROCESS
-  responsibility (no direct settlement stake) — the goal is to keep the workflow
-  flowing and avoid stall blame.
-
-  For the merchant who owns the Service, see wowok-provider. For the supplier who
-  presents to Demands, see wowok-supplier.
-when_to_use:
-  - User is an operator/employee executing workflow steps (permission index)
-  - User is an external named operator advancing a Machine forward
-  - User wants to submit guard evidence (proof/repository) for a forward
-  - User mentions "collaborator", "operator", "permission index", "named operator", "execute forward"
+description: "WoWok Collaborator — the canonical skill for process collaborators who execute workflow forwards on behalf of a merchant: internal staff (permission entities) and external operators (named operators). Covers permission-index and named-operator routing, guard-gated evidence submission, and reputation protection. The collaborator carries PROCESS responsibility (no direct settlement stake) — the goal is to keep the workflow flowing and avoid stall blame. For the merchant who owns the Service, see wowok-provider. For the supplier who presents to Demands, see wowok-supplier. Use when: User is an operator/employee executing workflow steps (permission index); User is an external named operator advancing a Machine forward; User wants to submit guard evidence (proof/repository) for a forward; User mentions \"collaborator\", \"operator\", \"permission index\", \"named operator\", \"execute forward\"."
+metadata:
+  version: "2.0.0"
+  role: collaborator
+  related: "wowok-provider, wowok-machine, wowok-messenger"
 ---
 
 # WoWok Collaborator Guide

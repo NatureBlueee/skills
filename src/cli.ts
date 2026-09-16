@@ -1,767 +1,54 @@
 #!/usr/bin/env node
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
-import * as os from 'os';
-import { getSkills, getSkillByName, getRoleSkills, recommendSkills, getSkillsByRole, checkSkillMigration, DEPRECATED_SKILLS } from './skills';
-import { SkillRole, ClientTarget, CLIENT_SKILL_DIRS, CLIENT_FILE_EXT, ALL_CLIENT_TARGETS } from './types';
-
 /**
- * Skill directory names (must match folder names in package)
- * Must stay in sync with scripts/install.js SKILL_DIRS
- * Ordered by role for clarity:
- * - Customer: wowok-order
- * - Provider: wowok-provider, wowok-machine
- * - Arbitrator: wowok-arbitrator
- * - Shared: wowok-messenger, wowok-output
- * - Onboarding: wowok-onboard, wowok-planner, wowok-auditor
+ * `wowok-skills` CLI.
  *
- * GLM5-31 sink refactor: wowok-guard/tools/safety/scenario were sunk into
- * the MCP knowledge layer and are no longer installed (see DEPRECATED_SKILLS).
+ * All installation/MCP logic lives in src/installer.ts + src/targets.ts so the
+ * CLI and the npm postinstall hook can never drift apart again.
  */
-const SKILL_DIRS = [
-  'wowok-order',
-  'wowok-provider',
-  'wowok-machine',
-  'wowok-arbitrator',
-  'wowok-messenger',
-  'wowok-output',
-  'wowok-onboard',
-  'wowok-planner',
-  'wowok-auditor',
-  'wowok-supplier',
-  'wowok-collaborator',
-  'wowok-governance',
-];
 
-/**
- * Deprecated skill dirs — never installed, but uninit still removes them
- * from legacy installs so users can clean up pre-refactor installations.
- */
-const LEGACY_SKILL_DIRS: string[] = [...DEPRECATED_SKILLS];
+import { getSkillsByRole, getRoleSkills, getSkillByName, recommendSkills } from './skills';
+import { SkillRole } from './types';
+import {
+  CLIENT_TARGETS,
+  DEFAULT_TARGET_IDS,
+  MANIFEST_FILE,
+  expandHome,
+  resolveSkillRoots,
+  type ClientTargetId,
+} from './targets';
+import {
+  ensureMcpServer,
+  installSkillsForTargets,
+  packageVersion,
+  registerMcpForTargets,
+  resolveMcpLaunch,
+  resolveTargets,
+  restartMcpServer,
+  saveReferrer,
+  statusForTargets,
+  uninstallSkillsForTargets,
+} from './installer';
 
-/**
- * Role display names for CLI output
- */
 const ROLE_DISPLAY: Record<SkillRole, string> = {
   customer: '👤 Customer',
   provider: '🏪 Provider',
   supplier: '📦 Supplier',
   collaborator: '🤝 Collaborator',
   arbitrator: '⚖️  Arbitrator',
-  shared: '🛠️  Shared'
+  shared: '🛠️  Shared',
 };
-
-function getPackageRoot(): string {
-  return path.resolve(__dirname, '..');
-}
-
-function copyDir(src: string, dest: string): boolean {
-  if (!fs.existsSync(src)) return false;
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-  return true;
-}
-
-function removeDir(dir: string): void {
-  if (!fs.existsSync(dir)) return;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      removeDir(fullPath);
-    } else {
-      fs.unlinkSync(fullPath);
-    }
-  }
-  fs.rmdirSync(dir);
-}
-
-function parseFrontmatter(content: string): { frontmatter: Record<string, any>; body: string } | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return null;
-  const frontmatterStr = match[1];
-  const body = match[2];
-  const frontmatter: Record<string, any> = {};
-  let currentKey: string | null = null;
-  let currentValue: string = '';
-  for (const line of frontmatterStr.split('\n')) {
-    const kvMatch = line.match(/^(\w[\w-]*)\s*:\s*(.*)$/);
-    if (kvMatch) {
-      if (currentKey) {
-        frontmatter[currentKey] = currentValue.trim();
-      }
-      currentKey = kvMatch[1];
-      currentValue = kvMatch[2];
-    } else if (currentKey) {
-      currentValue += '\n' + line;
-    }
-  }
-  if (currentKey) {
-    frontmatter[currentKey] = currentValue.trim();
-  }
-  return { frontmatter, body };
-}
-
-function convertToCursor(content: string, skillDir: string): string {
-  const parsed = parseFrontmatter(content);
-  if (!parsed) return content;
-
-  const { frontmatter, body } = parsed;
-  let description = frontmatter.description || frontmatter.name || skillDir;
-  if (typeof description === 'string') {
-    description = description.replace(/\n/g, ' ');
-  }
-  const isAlways = frontmatter.loading === 'always' || frontmatter.always === true || frontmatter.always === 'true';
-  const alwaysApply = isAlways ? 'true' : 'false';
-
-  const newFrontmatter = [
-    '---',
-    `description: "${description}"`,
-    `alwaysApply: ${alwaysApply}`,
-    '---',
-  ].join('\n');
-
-  return newFrontmatter + '\n' + body;
-}
-
-function convertToCopilot(content: string): string {
-  const parsed = parseFrontmatter(content);
-  if (!parsed) return content;
-  return parsed.body;
-}
-
-function convertSkillContent(content: string, target: string, skillDir: string): string {
-  if (target === 'cursor') return convertToCursor(content, skillDir);
-  if (target === 'copilot') return convertToCopilot(content);
-  return content;
-}
 
 // =========================================================================
-// MCP Server Management — shared by postinstall and `wowok-skills init`
+// Informational commands
 // =========================================================================
-
-const MCP_PACKAGE = '@wowok/agent-mcp';
-
-/**
- * Resolve CodeBuddy MCP config file according to its official priority rules.
- * Reference: https://www.codebuddy.ai/docs/cli/mcp#configuration-file-locations
- *
- * USER scope priority (highest → lowest):
- *   1. ~/.codebuddy/.mcp.json  (recommended)
- *   2. ~/.codebuddy/mcp.json   (deprecated)
- *   3. ~/.codebuddy.json       (legacy)
- *
- * Read rule : pick the FIRST existing candidate.
- * Write rule: if any file exists, merge into that first existing file;
- *             if none exist, create the highest-priority one (.mcp.json).
- */
-function resolveCodeBuddyMcpFile(): string {
-  const home = os.homedir();
-  const candidates = [
-    path.join(home, '.codebuddy', '.mcp.json'), // 1. recommended
-    path.join(home, '.codebuddy', 'mcp.json'),  // 2. deprecated
-    path.join(home, '.codebuddy.json'),          // 3. legacy
-  ];
-  const existing = candidates.find((p) => fs.existsSync(p));
-  return existing || candidates[0];
-}
-
-/**
- * Resolve VS Code globalStorage MCP settings files for a given extension ID.
- * See install.js resolveVscodeGlobalStorageFiles for full path references.
- */
-function resolveVscodeGlobalStorageFiles(extensionId: string, fileName: string): string[] {
-  const home = os.homedir();
-  const vsBaseDirs: string[] = (() => {
-    switch (process.platform) {
-      case 'darwin':
-        return [path.join(home, 'Library', 'Application Support')];
-      case 'win32':
-        return [process.env.APPDATA || path.join(home, 'AppData', 'Roaming')];
-      default:
-        return [process.env.XDG_CONFIG_HOME || path.join(home, '.config')];
-    }
-  })();
-
-  const results: string[] = [];
-  const vsVariants = ['Code', 'Code - Insiders', 'VSCodium', 'Cursor'];
-  for (const base of vsBaseDirs) {
-    for (const variant of vsVariants) {
-      const vsUserDir = path.join(base, variant, 'User');
-      if (fs.existsSync(vsUserDir)) {
-        results.push(path.join(
-          vsUserDir,
-          'globalStorage',
-          extensionId,
-          'settings',
-          fileName,
-        ));
-      }
-    }
-  }
-  return results;
-}
-
-/**
- * Resolve ALL Roo Code MCP config files that should receive the wowok entry.
- * Covers both Standalone CLI config and VS Code extension globalStorage
- * entries for every detected VS Code variant (Code, Insiders, VSCodium, Cursor).
- *
- * See detailed references in install.js resolveRooMcpFiles comments.
- */
-function resolveRooMcpFiles(): string[] {
-  const results: string[] = [];
-  // (A) Standalone CLI config
-  results.push(path.join(os.homedir(), '.roo', 'mcp_settings.json'));
-  // (B) VS Code extension globalStorage entries
-  results.push(...resolveVscodeGlobalStorageFiles(
-    'rooveterinaryinc.roo-cline',
-    'cline_mcp_settings.json',
-  ));
-  return results;
-}
-
-/**
- * Resolve ALL Cline (VS Code) MCP config files.
- * Cline stores MCP settings in VS Code globalStorage under its extension ID
- * (saoudrizwan.claude-dev), filename cline_mcp_settings.json.
- * Reference: https://www.skillmd.ai/skills/mcp-installer-1/
- */
-function resolveClineMcpFiles(): string[] {
-  return resolveVscodeGlobalStorageFiles(
-    'saoudrizwan.claude-dev',
-    'cline_mcp_settings.json',
-  );
-}
-
-/**
- * Resolve ALL Kilo Code MCP config files.
- * Kilo Code reads MCP settings from two separate places (documented by Kilo):
- *   (A) VS Code extension → globalStorage/kilocode.kilo-code/settings/mcp_settings.json
- *   (B) CLI              → ~/.kilocode/cli/global/settings/mcp_settings.json
- * References:
- *   - https://kilo.ai/docs/features/mcp/using-mcp-in-cli
- *   - https://github.com/Kilo-Org/kilocode/blob/main/docs/file-locations.md
- */
-function resolveKiloMcpFiles(): string[] {
-  const results: string[] = [];
-  results.push(...resolveVscodeGlobalStorageFiles(
-    'kilocode.kilo-code',
-    'mcp_settings.json',
-  ));
-  results.push(path.join(os.homedir(), '.kilocode', 'cli', 'global', 'settings', 'mcp_settings.json'));
-  return results;
-}
-
-type McpConfigEntry = {
-  configPath?: string;
-  resolveConfigPaths?: (cwd?: string) => string[];
-  merge?: (config: any) => any;
-  format?: 'toml';
-};
-
-const MCP_TARGET_CONFIGS: Record<string, McpConfigEntry | null> = {
-  claude: {
-    configPath: path.join(os.homedir(), '.claude', 'settings.json'),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  codebuddy: {
-    resolveConfigPaths: () => [resolveCodeBuddyMcpFile()],
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  windsurf: {
-    configPath: path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json'),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  qoder: {
-    configPath: (() => {
-      if (process.platform === 'win32') {
-        return path.join(
-          process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-          'Qoder', 'mcp-settings.json',
-        );
-      }
-      if (process.platform === 'darwin') {
-        return path.join(os.homedir(), 'Library', 'Application Support', 'Qoder', 'mcp-settings.json');
-      }
-      return path.join(
-        process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
-        'qoder', 'mcp-settings.json',
-      );
-    })(),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  roo: {
-    resolveConfigPaths: () => resolveRooMcpFiles(),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  cline: {
-    resolveConfigPaths: () => resolveClineMcpFiles(),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  kilo: {
-    resolveConfigPaths: () => resolveKiloMcpFiles(),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  // trae / agents: IDE-managed MCP via ~/.trae-cn/mcps/ directory structure
-  trae: null,
-  agents: null,
-  // cursor: project-level only
-  cursor: null,
-  // copilot: user-level MCP config (Copilot CLI)
-  copilot: {
-    configPath: path.join(os.homedir(), '.copilot', 'mcp-config.json'),
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { type: 'local', command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  // codex: global TOML config (~/.codex/config.toml)
-  codex: {
-    configPath: path.join(os.homedir(), '.codex', 'config.toml'),
-    format: 'toml',
-  },
-};
-
-/** Project-level MCP configs (written relative to cwd). */
-const MCP_PROJECT_CONFIGS: Record<string, { configPath: string; merge: (config: any) => any } | null> = {
-  cursor: {
-    configPath: '.cursor/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  windsurf: {
-    configPath: '.windsurf/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  trae: {
-    configPath: '.trae/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  agents: {
-    configPath: '.trae/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  qoder: {
-    configPath: '.qoder/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  roo: {
-    configPath: '.roo/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-  kilo: {
-    configPath: '.kilocode/mcp.json',
-    merge: (config: any) => {
-      config.mcpServers = config.mcpServers || {};
-      config.mcpServers.wowok = { command: 'npx', args: ['-y', '@wowok/agent-mcp'] };
-      return config;
-    },
-  },
-};
-
-function getInstalledMcpVersion(): string | null {
-  try {
-    const output = execSync(`npm ls -g ${MCP_PACKAGE} --depth=0 --json`, {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      timeout: 15000,
-    });
-    const parsed = JSON.parse(output);
-    const pkg = parsed.dependencies?.[MCP_PACKAGE] || parsed[MCP_PACKAGE];
-    return pkg?.version || null;
-  } catch { return null; }
-}
-
-function getLatestMcpVersion(): string | null {
-  try {
-    // --prefer-online forces npm to bypass local cache so we don't get
-    // stale version numbers. See project memory (components.mjs fix).
-    const output = execSync(`npm view --prefer-online ${MCP_PACKAGE} version`, {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      timeout: 15000,
-    });
-    return output.trim();
-  } catch { return null; }
-}
-
-function semverMajor(version: string | null): number {
-  if (!version) return 0;
-  const parts = version.split('.');
-  return parseInt(parts[0], 10) || 0;
-}
-
-function npmInstallGlobal(pkg: string, retries = 2): boolean {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      execSync(`npm install -g ${pkg}`, { stdio: 'inherit', timeout: 120000 });
-      return true;
-    } catch (err: any) {
-      if (attempt < retries) {
-        console.log(`[wowok-skills]   npm install attempt ${attempt} failed, retrying...`);
-        const waitCmd = process.platform === 'win32'
-          ? 'ping -n 3 127.0.0.1 >nul'
-          : 'sleep 2';
-        execSync(waitCmd, { stdio: 'pipe', timeout: 5000 });
-      } else {
-        console.error(`[wowok-skills]   npm install failed after ${retries} attempts: ${err.message}`);
-        return false;
-      }
-    }
-  }
-  return false;
-}
-
-function ensureMcpServer(): boolean {
-  const currentVersion = getInstalledMcpVersion();
-  const latestVersion = getLatestMcpVersion();
-
-  if (currentVersion) {
-    console.log(`[wowok-skills] MCP server ${MCP_PACKAGE} v${currentVersion} found.`);
-
-    if (!latestVersion) {
-      console.log(`[wowok-skills]   Cannot check latest version (offline or registry unreachable). Keeping v${currentVersion}.`);
-      return false;
-    }
-
-    if (currentVersion === latestVersion) {
-      console.log(`[wowok-skills] MCP server is up to date (v${currentVersion}).`);
-      return false;
-    }
-
-    const currentMajor = semverMajor(currentVersion);
-    const latestMajor = semverMajor(latestVersion);
-
-    if (latestMajor > currentMajor) {
-      console.warn(`[wowok-skills] ⚠ WARNING: Major version bump detected v${currentVersion} → v${latestVersion}.`);
-      console.warn(`[wowok-skills]   Skipping auto-upgrade to avoid breaking changes.`);
-      console.warn(`[wowok-skills]   To upgrade manually: npm install -g ${MCP_PACKAGE}@latest`);
-      return false;
-    }
-
-    console.log(`[wowok-skills] Upgrading MCP server v${currentVersion} → v${latestVersion}...`);
-    if (npmInstallGlobal(`${MCP_PACKAGE}@latest`)) {
-      console.log(`[wowok-skills] MCP server upgraded to v${latestVersion}.`);
-      return true;
-    }
-    console.error(`[wowok-skills] MCP server upgrade FAILED. Keeping v${currentVersion}.`);
-    return false;
-  }
-
-  console.log(`[wowok-skills] Installing MCP server ${MCP_PACKAGE}...`);
-  if (npmInstallGlobal(MCP_PACKAGE)) {
-    console.log(`[wowok-skills] MCP server installed.`);
-    return true;
-  }
-  console.error(`[wowok-skills] MCP server installation FAILED.`);
-  return false;
-}
-
-function writeMcpConfig(target: string, configMap: Record<string, any>, cwd?: string): boolean {
-  const cfg = configMap[target];
-  if (!cfg) {
-    console.log(`[wowok-skills]   MCP config: ${target} does not support external MCP registration (skipped).`);
-    return false;
-  }
-
-  // Expand to an array of concrete paths. Project-level configs always use
-  // `configPath` (single file); global configs for CodeBuddy / Roo / Cline /
-  // Kilo use `resolveConfigPaths()` to yield one or more paths.
-  const rawPaths: string[] = cfg.resolveConfigPaths
-    ? cfg.resolveConfigPaths(cwd)
-    : [cfg.configPath];
-  const configPaths = cwd && !cfg.resolveConfigPaths
-    ? rawPaths.map((p) => path.join(cwd!, p))
-    : rawPaths;
-
-  if (configPaths.length === 0) {
-    console.log(`[wowok-skills]   MCP config: no config file detected for ${target} (client not installed) — skipped.`);
-    return false;
-  }
-
-  let anyWritten = false;
-
-  for (const configPath of configPaths) {
-    try {
-      // ── TOML format (Codex CLI uses ~/.codex/config.toml) ──────────────
-      if (cfg.format === 'toml') {
-        const tomlEntry = '\n[mcp_servers.wowok]\ncommand = "npx"\nargs = ["-y", "@wowok/agent-mcp"]\n';
-        let content = '';
-        if (fs.existsSync(configPath)) {
-          content = fs.readFileSync(configPath, 'utf-8');
-        }
-        // Line-level regex: avoid matches inside comments or string literals.
-        if (/^\s*\[mcp_servers\.wowok\]\s*$/m.test(content)) {
-          console.log(`[wowok-skills]   MCP config already up to date: ${configPath}`);
-          continue;
-        }
-        fs.mkdirSync(path.dirname(configPath), { recursive: true });
-        fs.writeFileSync(configPath, content + tomlEntry, 'utf-8');
-        console.log(`[wowok-skills]   MCP config written: ${configPath}`);
-        anyWritten = true;
-        continue;
-      }
-
-      // ── JSON format (all other clients) ────────────────────────────────
-      let config: any = {};
-      if (fs.existsSync(configPath)) {
-        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      }
-
-      const before = JSON.stringify(config);
-      config = cfg.merge(config);
-      const after = JSON.stringify(config);
-
-      if (before !== after) {
-        fs.mkdirSync(path.dirname(configPath), { recursive: true });
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-        console.log(`[wowok-skills]   MCP config written: ${configPath}`);
-        anyWritten = true;
-      } else {
-        console.log(`[wowok-skills]   MCP config already up to date: ${configPath}`);
-      }
-    } catch (err: any) {
-      console.error(`[wowok-skills]   ERROR writing MCP config for ${target} at ${configPath}: ${err.message}`);
-    }
-  }
-
-  return anyWritten;
-}
-
-function restartMcpServer(): void {
-  try {
-    if (process.platform === 'win32') {
-      const psScript =
-        'Get-CimInstance Win32_Process -Filter "Name=\'node.exe\' AND CommandLine LIKE \'%wowok%agent-mcp%\'" | ' +
-        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }';
-      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
-      execSync(`powershell -NoProfile -EncodedCommand ${encoded}`, { stdio: 'pipe', timeout: 10000 });
-    } else {
-      execSync('pkill -f "wowok.*agent-mcp" 2>/dev/null || true', { stdio: 'pipe', timeout: 5000 });
-    }
-    console.log('[wowok-skills] MCP server process terminated (IDE will auto-restart).');
-  } catch {
-    console.log('[wowok-skills] No running MCP server process found. Start your IDE to launch it.');
-  }
-}
-
-function getTargets(targetArg: string | undefined): Exclude<ClientTarget, 'all'>[] {
-  if (!targetArg || targetArg === 'all') {
-    return [...ALL_CLIENT_TARGETS];
-  }
-  if (ALL_CLIENT_TARGETS.includes(targetArg as any)) {
-    return [targetArg as Exclude<ClientTarget, 'all'>];
-  }
-  console.error(`Invalid target: "${targetArg}"`);
-  console.error('');
-  console.error('Supported targets:');
-  console.error('  claude       .claude/skills/       (Claude Code)');
-  console.error('  cursor       .cursor/rules/        (Cursor IDE)');
-  console.error('  windsurf     .windsurf/skills/     (Windsurf / Codeium)');
-  console.error('  codebuddy    .codebuddy/skills/    (CodeBuddy)');
-  console.error('  codex        .codex/skills/        (OpenAI Codex / ChatGPT Desktop Codex Mode)');
-  console.error('  trae         .agents/skills/       (Trae CN & Trae Work)');
-  console.error('  qoder        .qoder/skills/        (Qoder / Qoder CN)');
-  console.error('  roo          .roo/skills/          (Roo Code)');
-  console.error('  cline        .cline/skills/        (Cline - VS Code)');
-  console.error('  kilo         .kilo/skills/         (Kilo Code)');
-  console.error('  copilot      .github/prompts/      (GitHub Copilot)');
-  console.error('  all          All of the above (default)');
-  process.exit(1);
-}
-
-function cmdInit(targetArg: string | undefined, withMcp: boolean, referrer?: string): void {
-  const cwd = process.cwd();
-  const pkgRoot = getPackageRoot();
-  const targets = getTargets(targetArg);
-  let totalCount = 0;
-
-  for (const target of targets) {
-    const skillsDir = CLIENT_SKILL_DIRS[target];
-    const targetDir = path.join(cwd, skillsDir);
-    const ext = CLIENT_FILE_EXT[target];
-    let count = 0;
-
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    for (const dir of SKILL_DIRS) {
-      const src = path.join(pkgRoot, dir, 'SKILL.md');
-      if (!fs.existsSync(src)) {
-        console.warn(`[wowok-skills] WARN: SKILL.md not found for ${dir}`);
-        continue;
-      }
-
-      const content = fs.readFileSync(src, 'utf-8');
-      const converted = convertSkillContent(content, target, dir);
-      const basename = target === 'cursor' || target === 'copilot'
-        ? `wowok-${dir.replace('wowok-', '')}${ext}`
-        : 'SKILL.md';
-      const destDir = path.join(targetDir, dir);
-      const dest = path.join(destDir, basename);
-
-      fs.mkdirSync(destDir, { recursive: true });
-      fs.writeFileSync(dest, converted, 'utf-8');
-      count++;
-      console.log(`[wowok-skills]   installed: ${dest}`);
-    }
-
-    totalCount += count;
-    console.log(`[wowok-skills] Done — ${count} skills installed to ${targetDir}`);
-
-    // GLM5-31 §3.2: detect stale pre-refactor skills and print migration hint.
-    const legacyFound = LEGACY_SKILL_DIRS.filter((dir) => fs.existsSync(path.join(targetDir, dir)));
-    if (legacyFound.length > 0) {
-      const migration = checkSkillMigration(legacyFound);
-      console.warn(`\n[wowok-skills] ⚠ ${migration.message}`);
-      console.warn('[wowok-skills] Remove them with: wowok-skills uninit\n');
-    }
-  }
-
-  if (targets.length > 1) {
-    console.log(`[wowok-skills] Total: ${totalCount} skills across ${targets.length} clients.`);
-  }
-
-  // ─── MCP setup (default: enabled, use --no-mcp to skip) ────────────
-  if (withMcp) {
-    console.log('');
-    console.log('[wowok-skills] Setting up MCP server (use --no-mcp to skip)...');
-
-    const mcpChanged = ensureMcpServer();
-
-    console.log('[wowok-skills] Registering MCP server in client config...');
-    for (const target of targets) {
-      // Global-level config (Claude, CodeBuddy, Windsurf, Qoder, Roo)
-      writeMcpConfig(target, MCP_TARGET_CONFIGS);
-      // Project-level config (Cursor, Windsurf, Trae, Qoder, Roo)
-      writeMcpConfig(target, MCP_PROJECT_CONFIGS, cwd);
-    }
-
-    if (mcpChanged) {
-      console.log('[wowok-skills] Restarting MCP server...');
-      restartMcpServer();
-    }
-
-    console.log('[wowok-skills] MCP server setup complete.');
-  } else {
-    console.log('');
-    console.log('[wowok-skills] --no-mcp: MCP server setup skipped (skills only).');
-  }
-
-  // ─── Airdrop referrer (--referrer <addr|name>) ─────────────────────
-  // Persist it in the MCP data dir; the MCP auto-injects it into every call,
-  // so it is recorded on-chain at the user's first real on-chain interaction.
-  // No manual "tell your AI" step needed.
-  if (referrer) {
-    saveReferrer(referrer);
-  }
-}
-
-function cmdUninit(targetArg?: string): void {
-  const cwd = process.cwd();
-  const targets = getTargets(targetArg);
-  let totalCount = 0;
-
-  for (const target of targets) {
-    const skillsDir = CLIENT_SKILL_DIRS[target];
-    const targetDir = path.join(cwd, skillsDir);
-    let count = 0;
-
-    // Remove both retained and legacy (deprecated) skills — legacy dirs may
-    // still exist from pre-refactor installs and must be cleaned up.
-    for (const dir of [...SKILL_DIRS, ...LEGACY_SKILL_DIRS]) {
-      const dirPath = path.join(targetDir, dir);
-      if (fs.existsSync(dirPath)) {
-        removeDir(dirPath);
-        count++;
-        console.log(`[wowok-skills]   removed: ${dirPath}`);
-      }
-    }
-
-    totalCount += count;
-    if (count === 0) {
-      console.log(`[wowok-skills] No skills found in ${targetDir}. Nothing to remove.`);
-    } else {
-      console.log(`[wowok-skills] Done — ${count} skills removed from ${targetDir}`);
-    }
-  }
-
-  if (targets.length > 1 && totalCount > 0) {
-    console.log(`[wowok-skills] Total: ${totalCount} skills across ${targets.length} clients.`);
-  }
-}
 
 function cmdList(): void {
-  console.log('Available WoWok Skills (organized by role):\n');
-  
-  const roleSkills = getRoleSkills();
-  for (const roleGroup of roleSkills) {
-    console.log(`${ROLE_DISPLAY[roleGroup.role]}`);
-    console.log(`  ${roleGroup.description}`);
-    for (const skill of roleGroup.skills) {
+  console.log('Available WoWok Skills (by role):\n');
+  for (const group of getRoleSkills()) {
+    console.log(ROLE_DISPLAY[group.role]);
+    console.log(`  ${group.description}`);
+    for (const skill of group.skills) {
       const loading = skill.loading === 'always' ? '[always]' : '[on-demand]';
       console.log(`    • ${skill.name} ${loading}`);
       console.log(`      ${skill.description}`);
@@ -772,217 +59,314 @@ function cmdList(): void {
 
 function cmdGet(name: string): void {
   const skill = getSkillByName(name);
-  if (skill) {
-    console.log(`Name: ${skill.name}`);
-    console.log(`Role: ${ROLE_DISPLAY[skill.role]}`);
-    console.log(`Loading: ${skill.loading}`);
-    console.log(`Version: ${skill.version}`);
-    console.log(`Description: ${skill.description}`);
-    if (skill.related && skill.related.length > 0) {
-      console.log(`Related: ${skill.related.join(', ')}`);
-    }
-  } else {
+  if (!skill) {
     console.error(`Skill not found: ${name}`);
     process.exit(1);
   }
-}
-
-function cmdRecommend(intent: string): void {
-  const recommended = recommendSkills(intent);
-  console.log(`Recommended skills for: "${intent}"\n`);
-  
-  // Group by role
-  const byRole: Record<string, typeof recommended> = {};
-  for (const skill of recommended) {
-    if (!byRole[skill.role]) byRole[skill.role] = [];
-    byRole[skill.role].push(skill);
-  }
-  
-  for (const [role, skills] of Object.entries(byRole)) {
-    console.log(`${ROLE_DISPLAY[role as SkillRole]}:`);
-    for (const skill of skills) {
-      console.log(`  • ${skill.name}`);
-    }
-    console.log('');
-  }
+  console.log(`Name: ${skill.name}`);
+  console.log(`Role: ${ROLE_DISPLAY[skill.role]}`);
+  console.log(`Loading: ${skill.loading}`);
+  console.log(`Version: ${skill.version}`);
+  console.log(`Description: ${skill.description}`);
+  if (skill.related?.length) console.log(`Related: ${skill.related.join(', ')}`);
 }
 
 function cmdRole(role: string): void {
-  if (!['customer', 'provider', 'supplier', 'collaborator', 'arbitrator', 'shared'].includes(role)) {
+  const roles: SkillRole[] = ['customer', 'provider', 'supplier', 'collaborator', 'arbitrator', 'shared'];
+  if (!roles.includes(role as SkillRole)) {
     console.error(`Invalid role: ${role}`);
-    console.error('Valid roles: customer, provider, supplier, collaborator, arbitrator, shared');
+    console.error(`Valid roles: ${roles.join(' | ')}`);
     process.exit(1);
   }
-  
-  const skills = getSkillsByRole(role as SkillRole);
   console.log(`${ROLE_DISPLAY[role as SkillRole]} Skills:\n`);
-  for (const skill of skills) {
+  for (const skill of getSkillsByRole(role as SkillRole)) {
     const loading = skill.loading === 'always' ? '[always]' : '[on-demand]';
     console.log(`  • ${skill.name} ${loading}`);
     console.log(`    ${skill.description}`);
   }
 }
 
-function printUsage(): void {
-  console.log('WoWok Skills CLI');
-  console.log('Usage: wowok-skills <command> [args]');
-  console.log('');
-  console.log('Commands:');
-  console.log('  list                    List all available skills (by role)');
-  console.log('  get <name>              Show skill details');
-  console.log('  role <role>             List skills for a role (customer|provider|supplier|collaborator|arbitrator|shared)');
-  console.log('  recommend <intent>      Recommend skills based on user intent');
-  console.log('  init [--target <t>] [--no-mcp] [--referrer <addr|name>]   Install skills to project (default: ALL clients with MCP)');
-  console.log('                              --no-mcp     Skip MCP server setup (skills only)');
-  console.log('                              --referrer   Save the airdrop referrer; auto-recorded on first on-chain interaction');
-  console.log('  referrer <addr|name>      Save the airdrop referrer GLOBALLY (no project needed)');
-  console.log('  uninit [--target <t>]   Remove skills from project (default: ALL clients)');
-  console.log('');
-  console.log('Targets (--target <t> — omit to install all clients):');
-  console.log('  claude       .claude/skills/       (Claude Code)');
-  console.log('  cursor       .cursor/rules/        (Cursor IDE)');
-  console.log('  windsurf     .windsurf/skills/     (Windsurf / Codeium)');
-  console.log('  codebuddy    .codebuddy/skills/    (CodeBuddy)');
-  console.log('  codex        .codex/skills/        (OpenAI Codex / ChatGPT Desktop Codex Mode)');
-  console.log('  trae         .agents/skills/       (Trae CN & Trae Work)');
-  console.log('  qoder        .qoder/skills/        (Qoder / Qoder CN)');
-  console.log('  roo          .roo/skills/          (Roo Code)');
-  console.log('  cline        .cline/skills/        (Cline - VS Code)');
-  console.log('  kilo         .kilo/skills/         (Kilo Code)');
-  console.log('  copilot      .github/prompts/      (GitHub Copilot)');
-  console.log('  all          All of the above (default)');
-  console.log('');
-  console.log('Examples:');
-  console.log('  wowok-skills list');
-  console.log('  wowok-skills get wowok-provider');
-  console.log('  wowok-skills role provider');
-  console.log('  wowok-skills recommend "create a service"');
-  console.log('  wowok-skills init                   # All clients (default)');
-  console.log('  wowok-skills init --target claude   # One client only');
-  console.log('  wowok-skills init --no-mcp');
-  console.log('  wowok-skills uninit                 # All clients (default)');
+function cmdRecommend(intent: string): void {
+  const recommended = recommendSkills(intent);
+  console.log(`Recommended skills for: "${intent}"\n`);
+  if (recommended.length === 0) {
+    console.log('  (no skill matches — this knowledge is served by the MCP server directly)');
+    return;
+  }
+  const byRole: Record<string, string[]> = {};
+  for (const skill of recommended) (byRole[skill.role] ||= []).push(skill.name);
+  for (const [role, names] of Object.entries(byRole)) {
+    console.log(`${ROLE_DISPLAY[role as SkillRole]}:`);
+    for (const name of names) console.log(`  • ${name}`);
+    console.log('');
+  }
 }
 
-function main() {
-  const args = process.argv.slice(2);
+// =========================================================================
+// Install / uninstall
+// =========================================================================
 
-  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+interface ParsedArgs {
+  targets?: string[];
+  noMcp: boolean;
+  referrer?: string;
+  force: boolean;
+  user: boolean;
+  project: boolean;
+}
+
+function parseInitArgs(args: string[]): ParsedArgs {
+  const parsed: ParsedArgs = { noMcp: false, force: false, user: false, project: false };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--target' || arg === '-t') {
+      const value = args[++i];
+      if (value) parsed.targets = value.split(',').map((t) => t.trim()).filter(Boolean);
+    } else if (arg === '--no-mcp') {
+      parsed.noMcp = true;
+    } else if (arg === '--force') {
+      parsed.force = true;
+    } else if (arg === '--user') {
+      parsed.user = true;
+    } else if (arg === '--project') {
+      parsed.project = true;
+    } else if (arg === '--referrer') {
+      parsed.referrer = args[++i]?.trim() || undefined;
+    } else if (!arg.startsWith('-') && DEFAULT_TARGET_IDS.includes(arg as ClientTargetId)) {
+      parsed.targets = [arg];
+    }
+  }
+  return parsed;
+}
+
+function printTargets(): void {
+  console.log('Targets (--target <t> — repeatable, comma-separated; omit for all):');
+  for (const target of CLIENT_TARGETS) {
+    const roots = target.projectSkillDirs.join(', ');
+    console.log(`  ${target.id.padEnd(10)} project: ${roots.padEnd(20)} ${target.label}`);
+  }
+  console.log(`  ${'all'.padEnd(10)} every target above (default)`);
+}
+
+function cmdInit(parsed: ParsedArgs): void {
+  const { targets, unknown } = resolveTargets(parsed.targets);
+  if (unknown.length > 0) {
+    console.error(`Unknown target(s): ${unknown.join(', ')}`);
+    console.error('');
+    printTargets();
+    process.exit(1);
+  }
+
+  const scopes: Array<'user' | 'project'> = parsed.user || parsed.project
+    ? [...(parsed.user ? (['user'] as const) : []), ...(parsed.project ? (['project'] as const) : [])]
+    : ['user', 'project'];
+
+  // Project scope always targets the current working directory.
+  const cwd = process.cwd();
+
+  console.log(`[wowok-skills] Installing skills (${scopes.join(' + ')}) for ${targets.length} target(s)...`);
+  const results = installSkillsForTargets(targets, scopes, cwd, { force: parsed.force });
+  for (const r of results) {
+    console.log(
+      `  → ${r.root}\n    ${r.written} written · ${r.unchanged} up to date · ${r.pruned} pruned · ${r.legacyRemoved} deprecated removed`,
+    );
+    for (const err of r.errors) console.error(`    ERROR: ${err}`);
+  }
+
+  if (!parsed.noMcp) {
+    console.log('');
+    console.log('[wowok-skills] Checking MCP server...');
+    const changed = ensureMcpServer();
+    const launch = resolveMcpLaunch();
+    console.log(`[wowok-skills] launcher: ${launch.command} ${launch.args.join(' ')}`);
+    const mcpScopes: Array<'user' | 'project'> = parsed.project
+      ? ['project']
+      : parsed.user
+        ? ['user']
+        : ['user', 'project'];
+    console.log('[wowok-skills] Registering MCP server...');
+    for (const r of registerMcpForTargets(targets, mcpScopes, cwd)) {
+      console.log(`  ${r.status.padEnd(9)} ${r.path}${r.detail ? `  (${r.detail})` : ''}`);
+    }
+    if (changed) restartMcpServer();
+  } else {
+    console.log('[wowok-skills] --no-mcp: MCP setup skipped.');
+  }
+
+  if (parsed.referrer) {
+    console.log('');
+    saveReferrer(parsed.referrer);
+  }
+
+  console.log('');
+  console.log('[wowok-skills] Done. Verify with: wowok-skills doctor');
+}
+
+function cmdUninit(parsed: ParsedArgs): void {
+  const { targets, unknown } = resolveTargets(parsed.targets);
+  if (unknown.length > 0) {
+    console.error(`Unknown target(s): ${unknown.join(', ')}`);
+    process.exit(1);
+  }
+  const scopes: Array<'user' | 'project'> = parsed.user || parsed.project
+    ? [...(parsed.user ? (['user'] as const) : []), ...(parsed.project ? (['project'] as const) : [])]
+    : ['user', 'project'];
+  const removed = uninstallSkillsForTargets(targets, scopes, process.cwd());
+  console.log(`[wowok-skills] Removed ${removed} skill director${removed === 1 ? 'y' : 'ies'}.`);
+  console.log('[wowok-skills] MCP config entries are left in place — delete the "wowok" entry manually if unwanted.');
+}
+
+function cmdDoctor(): void {
+  const cwd = process.cwd();
+  const { targets } = resolveTargets(undefined);
+  console.log(`WoWok Skills doctor · CLI v${packageVersion()}`);
+  console.log(`Dirs: home=${expandHome('~')}  cwd=${cwd}\n`);
+
+  const launch = resolveMcpLaunch();
+  console.log(`MCP launcher: ${launch.command} ${launch.args.join(' ')}`);
+  console.log(
+    launch.command === 'node'
+      ? '  ✔ version-pinned to the verified global install, Windows-safe\n'
+      : '  ⚠ falling back to npx (global install not found) — run: npm install -g @wowok/agent-mcp\n',
+  );
+
+  const statuses = statusForTargets(targets, cwd);
+  for (const status of statuses) {
+    console.log(`${status.label}  [${status.id}]`);
+    const sections: Array<[string, typeof status.userRoots]> = [
+      ['user   ', status.userRoots],
+      ['project', status.projectRoots],
+    ];
+    for (const [label, roots] of sections) {
+      for (const root of roots) {
+        if (!root.present) {
+          // Project roots only matter inside a project — report quietly.
+          console.log(`  ${label}  ✗ not installed  ${root.root}`);
+          continue;
+        }
+        const total = root.fresh + root.stale + root.missing;
+        const marker = total === 13 && root.stale === 0 && root.missing === 0 ? '✔' : '⚠';
+        console.log(
+          `  ${label}  ${marker} ${root.fresh} current / ${root.stale} stale / ${root.missing} missing` +
+            `${root.legacy > 0 ? ` / ${root.legacy} deprecated` : ''}` +
+            `  ${root.root}${root.manifestVersion ? `  (installed by v${root.manifestVersion})` : ''}`,
+        );
+      }
+    }
+    for (const mcp of status.mcp) {
+      if (!mcp.present) {
+        console.log(`  mcp     ○ no config file  ${mcp.path}`);
+        continue;
+      }
+      console.log(`  mcp     ${mcp.registered ? '✔' : '✗'} ${mcp.path}${mcp.detail ? `\n            ↳ ${mcp.detail}` : ''}`);
+    }
+    for (const note of status.notes) console.log(`  note    ↳ ${note}`);
+    console.log('');
+  }
+
+  const problems = statuses.filter((s) =>
+    [...s.userRoots, ...s.projectRoots].some((r) => r.present && (r.stale > 0 || r.missing > 0 || r.legacy > 0)),
+  );
+  console.log('-----------------------------------------------------------');
+  console.log(`Manifest file written per root: ${MANIFEST_FILE}`);
+  console.log(
+    problems.length === 0
+      ? '✅ No stale installs detected.'
+      : `⚠ ${problems.length} root(s) need a refresh — run: wowok-skills init --force`,
+  );
+  console.log('Tip: `wowok-skills init` inside a project adds project-scoped copies (team sharing via git).');
+}
+
+// =========================================================================
+// Help
+// =========================================================================
+
+function printUsage(): void {
+  console.log('WoWok Skills CLI');
+  console.log('Usage: wowok-skills <command> [options]\n');
+  console.log('Commands:');
+  console.log('  list                       List all skills (by role)');
+  console.log('  get <name>                 Show skill details');
+  console.log('  role <role>                List skills for a role');
+  console.log('  recommend <intent>         Recommend skills from a user intent');
+  console.log('  init [options]             Install skills + register MCP (default: user + project, all targets)');
+  console.log('  uninit [options]           Remove installed skills (MCP entries are left alone)');
+  console.log('  doctor                     Show per-client install + MCP registration state');
+  console.log('  referrer <addr|name>       Save the airdrop referrer globally\n');
+  console.log('Options:');
+  console.log('  --target <t>               Target(s), comma separated (default: all)');
+  console.log('  --user / --project         Restrict the scope (default: both for init)');
+  console.log('  --force                    Rewrite every file even when unchanged');
+  console.log('  --no-mcp                   Skip MCP server install/registration');
+  console.log('  --referrer <addr|name>     Save the airdrop referrer during init\n');
+  printTargets();
+  console.log('\nExamples:');
+  console.log('  wowok-skills init                        # all targets, user + project');
+  console.log('  wowok-skills init --target claude,cursor --project');
+  console.log('  wowok-skills doctor');
+  console.log('  wowok-skills uninit --target codex');
+}
+
+function main(): void {
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  if (!command || command === '--help' || command === '-h' || command === 'help') {
     printUsage();
     process.exit(0);
   }
-
-  const command = args[0];
 
   switch (command) {
     case 'list':
       cmdList();
       break;
-
     case 'get':
-      if (args.length < 2) {
-        console.error('Error: Skill name required');
+      if (!args[1]) {
+        console.error('Error: skill name required');
         process.exit(1);
       }
       cmdGet(args[1]);
       break;
-
     case 'role':
-      if (args.length < 2) {
-        console.error('Error: Role required (customer|provider|arbitrator|shared)');
+      if (!args[1]) {
+        console.error('Error: role required (customer|provider|supplier|collaborator|arbitrator|shared)');
         process.exit(1);
       }
       cmdRole(args[1]);
       break;
-
     case 'recommend':
       if (args.length < 2) {
-        console.error('Error: Intent description required');
+        console.error('Error: intent description required');
         process.exit(1);
       }
       cmdRecommend(args.slice(1).join(' '));
       break;
-
-    case 'init': {
-      const rest = args.slice(1);
-      const withMcp = !rest.includes('--no-mcp');
-      const referrer = parseReferrerArg(rest);
-      cmdInit(parseTargetArg(rest), withMcp, referrer);
+    case 'init':
+      cmdInit(parseInitArgs(args.slice(1)));
       break;
-    }
-
     case 'uninit':
-      cmdUninit(parseTargetArg(args.slice(1)));
+      cmdUninit(parseInitArgs(args.slice(1)));
       break;
-
+    case 'doctor':
+      cmdDoctor();
+      break;
     case 'referrer': {
       const value = args[1];
       if (!value || value.startsWith('--')) {
-        console.error('Error: Referrer address or name required — wowok-skills referrer <addr|name>');
+        console.error('Error: referrer address or name required — wowok-skills referrer <addr|name>');
         process.exit(1);
       }
       saveReferrer(value);
       break;
     }
-
+    case 'targets':
+      printTargets();
+      break;
     default:
-      console.error(`Unknown command: ${command}`);
+      console.error(`Unknown command: ${command}\n`);
       printUsage();
       process.exit(1);
   }
-}
-
-function parseTargetArg(rest: string[]): string | undefined {
-  // Check for --target <value> first
-  const idx = rest.indexOf('--target');
-  if (idx !== -1 && idx + 1 < rest.length) {
-    return rest[idx + 1];
-  }
-  // Check for positional argument (first non-flag arg)
-  const positional = rest.find(a => !a.startsWith('--'));
-  if (positional && ALL_CLIENT_TARGETS.includes(positional as any)) {
-    return positional;
-  }
-  return undefined;
-}
-
-function parseReferrerArg(rest: string[]): string | undefined {
-  const idx = rest.indexOf('--referrer');
-  if (idx !== -1 && idx + 1 < rest.length) {
-    const v = rest[idx + 1].trim();
-    return v || undefined;
-  }
-  return undefined;
-}
-
-/** Wow MCP data dir — mirrors @wowok/wowok getWowMcpDir(): dirname(wowDir)/mcp. */
-function wowMcpDir(): string {
-  const home = os.homedir();
-  let wowDir: string;
-  if (process.env.WOWOK_DATA_DIR) {
-    wowDir = process.env.WOWOK_DATA_DIR;
-  } else if (process.platform === 'win32') {
-    wowDir = path.join(home, '.wow', 'V1');
-  } else if (process.platform === 'darwin') {
-    wowDir = path.join(home, 'Library', 'Application Support', '.wow', 'V1');
-  } else {
-    const xdgConfig = process.env.XDG_CONFIG_HOME;
-    if (xdgConfig) {
-      wowDir = path.join(xdgConfig, '.wow', 'V1');
-    } else {
-      const xdgData = process.env.XDG_DATA_HOME;
-      wowDir = xdgData ? path.join(xdgData, '.wow', 'V1') : path.join(home, '.wow', 'V1');
-    }
-  }
-  return path.join(path.dirname(wowDir), 'mcp');
-}
-
-/** Persist the airdrop referrer so the MCP auto-injects it on every call. */
-function saveReferrer(referrer: string): void {
-  const dir = wowMcpDir();
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'referrer'), referrer.trim() + '\n', 'utf-8');
-  console.log(`[wowok-skills] airdrop referrer saved: ${referrer.trim()}`);
-  console.log('[wowok-skills] it is auto-recorded on your first on-chain interaction.');
 }
 
 main();

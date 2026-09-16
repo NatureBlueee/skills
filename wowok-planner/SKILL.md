@@ -1,24 +1,10 @@
 ---
 name: wowok-planner
-description: |
-  WoWok Planning Skill — the main planning component of the L4 Harness Plan Loop.
-  Converts user natural-language intent into an executable Object Dependency Graph
-  (ODG) and a phased execution plan. Deterministic-first: rule tables and scenario
-  templates drive planning; the LLM only clarifies intent and translates responses.
-
-  Use when a user says "I want to build...", "plan a service", "help me set up X",
-  or when the L4 Harness opens a new planning cycle. Produces an ODG JSON document
-  consumed by the Harness execution loop, with checkpoints between phases.
-
-  Not for direct execution — hand off to wowok-onboard or wowok-provider for
-  step-by-step MCP orchestration once the ODG is confirmed.
-when_to_use:
-  - User describes a new service intent and needs a build plan
-  - L4 Harness opens a Plan Loop cycle (fresh task)
-  - User asks "what do I need to create to support X"
-  - User wants to reuse existing objects for a new service
-  - User asks for a dependency graph or execution phases
-  - User resumes an interrupted planning session (read ODG checkpoint)
+description: "WoWok Planning Skill — the planning component of the L4 Harness Plan Loop. Converts natural-language intent into an executable Object Dependency Graph (ODG) plus a phased plan. Deterministic-first: rule tables and scenario templates drive planning; the LLM only clarifies intent. Produces an ODG consumed by the Harness execution loop, with checkpoints between phases. Not for direct execution — hand off to wowok-onboard or wowok-provider once the ODG is confirmed. Use when: User describes a new service intent and needs a build plan; the Harness opens a Plan Loop cycle; User asks \"what do I need to create to support X\"; User wants to reuse existing objects for a new service; User asks for a dependency graph or execution phases; User resumes an interrupted planning session."
+metadata:
+  version: "2.0.0"
+  role: shared
+  related: "wowok-onboard, wowok-auditor, wowok-provider"
 ---
 
 # WoWok Planning Skill

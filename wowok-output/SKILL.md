@@ -1,15 +1,10 @@
 ---
 name: wowok-output
-description: |
-  WoWok output processing and display — post-processes all WoWok tool responses
-  for human-readable presentation. Handles address resolution, name mapping,
-  amount formatting, and data visualization.
-when_to_use:
-  - AI has received response from any WoWok MCP tool
-  - Response contains addresses requiring name resolution
-  - Response contains amounts requiring human-readable formatting
-  - User queries on-chain data (events, objects, tables)
-always: true
+description: "WoWok output processing and display — post-processes all WoWok tool responses for human-readable presentation. Handles address resolution, name mapping, amount formatting, and data visualization. Use when: AI has received response from any WoWok MCP tool; Response contains addresses requiring name resolution; Response contains amounts requiring human-readable formatting; User queries on-chain data (events, objects, tables)."
+metadata:
+  version: "2.0.0"
+  role: shared
+  loading: always
 ---
 
 # Address Display Rules

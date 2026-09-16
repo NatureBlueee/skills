@@ -1,26 +1,10 @@
 ---
 name: wowok-market
-description: |
-  WoWok Market — the canonical skill for market discovery and operations. It
-  covers the "matchmaking + operations" layer (K3 13/14/15): how a demand finds
-  candidate services, how a merchant picks a trustworthy arbitrator, how the
-  account's on-chain attention is surfaced, and how the market is measured and
-  governed.
-
-  Covers match_discover / discover_services / discover_demands (discovery),
-  arbitration_score (trust selection), account_events (attention), market_metrics
-  (supply/demand/trust), anti_cheat (governance), market_operations (journey
-  funnel / referral / CRM), and category match rules.
-
-  For the merchant who owns a Service, see wowok-provider. For the customer
-  placing an order, see wowok-order. For the arbitrator, see wowok-arbitrator.
-when_to_use:
-  - User wants to discover services for an intent ("find a plumber in Shanghai")
-  - Merchant wants to discover open Demands to present to
-  - Merchant wants to pick/compare arbitrators (arbitration_score)
-  - User wants their on-chain attention items surfaced (account_events)
-  - User wants market metrics / anti-cheat signals / journey funnel / referral / CRM
-  - User mentions "market", "match", "discover", "matchmaking", "operations", "funnel", "referral", "customer relationship"
+description: "WoWok Market — market discovery and operations (the matchmaking layer): how a demand finds candidate services, how a merchant picks a trustworthy arbitrator, how the account's on-chain attention is surfaced, and how the market is measured and governed. Covers match_discover/discover_services/discover_demands, arbitration_score (trust selection), account_events (attention), market_metrics, anti_cheat, market_operations (journey funnel / referral / CRM) and category match rules. Use when: User wants to discover services for an intent (\"find a plumber in Shanghai\"); Merchant wants to find open Demands to present to; Merchant wants to pick or compare arbitrators; User wants their on-chain attention items surfaced; User wants market metrics, anti-cheat signals, journey funnel, referral or CRM; User mentions \"market\", \"match\", \"discover\", \"matchmaking\", \"funnel\", \"referral\"."
+metadata:
+  version: "1.0.0"
+  role: shared
+  related: "wowok-provider, wowok-order, wowok-arbitrator"
 ---
 
 # WoWok Market Guide

@@ -1,23 +1,10 @@
 ---
 name: wowok-messenger
-description: |
-  WoWok Messenger — end-to-end encrypted communication for pre-order negotiation,
-  evidence collection, and dispute resolution.
-
-  Core features: send/receive encrypted messages, generate WTS evidence files,
-  verify message authenticity, manage conversations with anti-spam controls, and
-  integrate with arbitration workflows.
-
-  Used by customers, service providers, and arbitrators for secure off-chain
-  communication that creates tamper-proof audit trails.
-when_to_use:
-  - User needs to communicate with another party (buyer, seller, arbitrator)
-  - User wants to send encrypted messages for negotiation
-  - User needs to generate WTS evidence files from conversations
-  - User wants to verify message authenticity
-  - User needs to manage conversation lists (friends, blacklist, guard)
-  - User mentions "messenger", "message", "chat", "communication", "WTS", "evidence"
-always: false
+description: "WoWok Messenger — end-to-end encrypted communication for pre-order negotiation, evidence collection, and dispute resolution. Core features: send/receive encrypted messages, generate WTS evidence files, verify message authenticity, manage conversations with anti-spam controls, and integrate with arbitration workflows. Used by customers, service providers, and arbitrators for secure off-chain communication that creates tamper-proof audit trails. Use when: User needs to communicate with another party (buyer, seller, arbitrator); User wants to send encrypted messages for negotiation; User needs to generate WTS evidence files from conversations; User wants to verify message authenticity; User needs to manage conversation lists (friends, blacklist, guard); User mentions \"messenger\", \"message\", \"chat\", \"communication\", \"WTS\", \"evidence\"."
+metadata:
+  version: "2.0.0"
+  role: shared
+  related: "wowok-order, wowok-provider, wowok-arbitrator"
 ---
 
 # WoWok Messenger Guide

@@ -1,27 +1,10 @@
 ---
 name: wowok-onboard
-description: |
-  WoWok First-Touch Onboarding — guides a NEW user (vague first prompt) to their
-  first published Service through a business-first dialogue: a Review opening
-  followed by AT MOST 8 mandatory business questions (never technical field
-  prompts), then a dependency-aware auto-build with reuse/customize/discover for
-  the technical components. Every business decision (industry, network, location,
-  payment token, pricing, workflow, fund distribution, arbitration) is framed in
-  terms of who-wins-what and why — not which field to fill.
-
-  Use when a new user says "I want to open a shop", "I want to sell something",
-  "how do I start", or has no published Service yet. Produces a complete merchant
-  capability stack: Permission + Service (published) + Machine (published) +
-  Progress (bound) + Guards + Allocation + Contact + Arbitration, verified by a
-  user-driven test order.
-
-  Not for existing merchants tuning operations — hand off to wowok-provider.
-when_to_use:
-  - User is new to WoWok and wants to set up a service
-  - User says "open a shop", "create a service", "start selling", "onboard"
-  - User has no published Service yet on the current account
-  - User completed account creation and asks "what's next"
-  - User resumes an interrupted onboarding (read checkpoint state)
+description: "WoWok First-Touch Onboarding — guides a NEW user from a vague first prompt to their first published Service: a Review opening, then AT MOST 8 mandatory business questions (never technical field prompts), then a dependency-aware auto-build (reuse / customize / discover). Every decision (industry, network, location, token, pricing, workflow, fund distribution, arbitration) is framed as who-wins-what and why. Produces Permission + Service + Machine + Progress + Guards + Allocation + Contact + Arbitration, verified by a test order. Not for existing merchants tuning operations — use wowok-provider. Use when: User is new to WoWok and wants to set up a service; User says \"open a shop\", \"create a service\", \"start selling\", \"onboard\"; User has no published Service yet; User asks \"what's next\" after account creation; User resumes an interrupted onboarding."
+metadata:
+  version: "2.0.0"
+  role: shared
+  related: "wowok-provider, wowok-machine"
 ---
 
 # WoWok First-Touch Onboarding

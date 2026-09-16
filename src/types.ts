@@ -10,54 +10,11 @@ export type SkillRole = 'customer' | 'provider' | 'supplier' | 'collaborator' | 
  */
 export type LoadingMode = 'always' | 'on-demand';
 
-export type ClientTarget =
-  | 'claude'    // Claude Code — .claude/skills/
-  | 'cursor'    // Cursor — .cursor/rules/
-  | 'windsurf'  // Windsurf (Codeium) — .windsurf/skills/
-  | 'codebuddy' // CodeBuddy — .codebuddy/skills/
-  | 'codex'     // OpenAI Codex — .codex/skills/ (MCP via config.toml)
-  | 'trae'      // Trae CN & Trae Work — .agents/skills/ (CN) / .trae/skills/ (Work)
-  | 'qoder'     // Qoder / Qoder CN — .qoder/skills/
-  | 'roo'       // Roo Code — .roo/skills/
-  | 'cline'     // Cline (VS Code) — .cline/skills/ (MCP via globalStorage)
-  | 'kilo'      // Kilo Code — .kilo/skills/ (MCP via globalStorage + CLI)
-  | 'agents'    // [DEPRECATED] alias for 'trae'
-  | 'copilot'   // GitHub Copilot — .github/prompts/ (MCP via mcp-config.json)
-  | 'all';
-
-export const CLIENT_SKILL_DIRS: Record<Exclude<ClientTarget, 'all'>, string> = {
-  claude: '.claude/skills',
-  cursor: '.cursor/rules',
-  windsurf: '.windsurf/skills',
-  codebuddy: '.codebuddy/skills',
-  codex: '.codex/skills',
-  trae: '.agents/skills',
-  qoder: '.qoder/skills',
-  roo: '.roo/skills',
-  cline: '.cline/skills',
-  kilo: '.kilo/skills',
-  agents: '.agents/skills',
-  copilot: '.github/prompts',
-};
-
-export const CLIENT_FILE_EXT: Record<Exclude<ClientTarget, 'all'>, string> = {
-  claude: '.md',
-  cursor: '.mdc',
-  windsurf: '.md',
-  codebuddy: '.md',
-  codex: '.md',
-  trae: '.md',
-  qoder: '.md',
-  roo: '.md',
-  cline: '.md',
-  kilo: '.md',
-  agents: '.md',
-  copilot: '.prompt.md',
-};
-
-export const ALL_CLIENT_TARGETS: Exclude<ClientTarget, 'all'>[] = [
-  'claude', 'cursor', 'windsurf', 'codebuddy', 'codex', 'trae', 'qoder', 'roo', 'cline', 'kilo', 'copilot',
-];
+/**
+ * Client installation targets (directories + MCP config files) live in
+ * src/targets.ts — the single source of truth shared by the installer and the
+ * CLI. Keep this module free of any path knowledge.
+ */
 
 /**
  * Skill definition

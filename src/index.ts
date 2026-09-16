@@ -22,6 +22,35 @@ export {
 } from './skills';
 export type { DeprecatedSkill } from './skills';
 
+// Export the installation target table and the installer API (used by the CLI
+// and available to embedders that want to provision skills themselves).
+export {
+  CLIENT_TARGETS,
+  DEFAULT_TARGET_IDS,
+  LEGACY_SKILL_NAMES,
+  MANIFEST_FILE,
+  MCP_PACKAGE,
+  SKILL_NAMES,
+  SKILL_MIGRATION_TARGETS,
+  getClientTarget,
+  resolveMcpSpecs,
+  resolveSkillRoots,
+} from './targets';
+export type { ClientTarget, ClientTargetId, McpLaunch, McpSpec } from './targets';
+export {
+  ensureMcpServer,
+  installSkillsForTargets,
+  installSkillsInto,
+  packageVersion,
+  registerMcpForTargets,
+  resolveMcpLaunch,
+  resolveTargets,
+  statusForTargets,
+  uninstallSkillsForTargets,
+} from './installer';
+export type { McpStatus, McpWriteResult, RootInstallResult, RootStatus, TargetStatus } from './installer';
+
+
 /** Resolve the skills package root from the compiled output (dist/index.js → package root). */
 function getPackageRoot(): string {
   return path.resolve(__dirname, '..');

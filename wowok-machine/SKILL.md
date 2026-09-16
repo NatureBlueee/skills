@@ -1,23 +1,10 @@
 ---
 name: wowok-machine
-description: |
-  WoWok Machine Workflow Design — the canonical skill for designing, building,
-  and operating automated workflow templates (Machines) on WoWok. Machines are
-  directed graphs that define how orders progress through stages, who can
-  advance them, and what conditions must be met at each step.
-
-  Covers Machine architecture (Nodes, Pairs, Forwards, Guards, Thresholds),
-  lifecycle management (create, configure, publish, pause), node operations
-  (add, exchange, rename, granular forward/prior-node manipulation),
-  Progress integration, cross-Machine supply chain composition via Guard verification, privacy-preserving
-  consensus patterns, and export/import workflows via machineNode2file.
-when_to_use:
-  - User wants to create or modify a Machine workflow
-  - User asks about workflow steps, state transitions, or progress
-  - User needs to design order processing pipelines
-  - User mentions "machine", "workflow", "progress", "state machine", "pipeline"
-  - User wants to export Machine nodes to a file or import from a file
-  - User needs to understand threshold mechanics, forward permissions, or guard bindings
+description: "WoWok Machine Workflow Design — design, build and operate workflow templates (Machines): directed graphs that define how orders progress through stages, who can advance them, and what conditions must be met at each step. Covers Nodes/Pairs/Forwards/Guards/Thresholds, lifecycle (create, configure, publish, pause), node and forward operations, Progress integration, cross-Machine supply chains via Guard verification, and machineNode2file import/export. Use when: User wants to create or modify a Machine workflow; User asks about workflow steps, state transitions, or progress; User needs to design order processing pipelines; User mentions \"machine\", \"workflow\", \"progress\", \"state machine\", \"pipeline\"; User wants to export/import Machine nodes via a file; User needs threshold mechanics, forward permissions, or guard bindings."
+metadata:
+  version: "2.0.0"
+  role: provider
+  related: "wowok-provider"
 ---
 
 # WoWok Machine Workflow Design

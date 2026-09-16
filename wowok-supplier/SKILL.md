@@ -1,21 +1,10 @@
 ---
 name: wowok-supplier
-description: |
-  WoWok Supplier — the canonical skill for suppliers (sub-order providers) who
-  present their service to a Demand and fulfill the resulting sub-order.
-
-  Covers demand discovery, service presentation (open or passport-gated),
-  sub-order fulfillment via Progress, and settlement collection. The supplier
-  is a PEER role with a two-sided position: deliver (to get paid) + collect
-  (from the upstream merchant).
-
-  For the merchant who owns the main Service, see wowok-provider. For the
-  process operators executing the workflow, see wowok-collaborator.
-when_to_use:
-  - User wants to present their service to a Demand (open RFP or gated call)
-  - User is a sub-order provider / supplier fulfilling part of a transaction
-  - User wants to collect settlement from an upstream merchant
-  - User mentions "supplier", "sub-order", "demand", "present service", "RFP", "fulfill sub-order"
+description: "WoWok Supplier — the canonical skill for suppliers (sub-order providers) who present their service to a Demand and fulfill the resulting sub-order. Covers demand discovery, service presentation (open or passport-gated), sub-order fulfillment via Progress, and settlement collection. The supplier is a PEER role with a two-sided position: deliver (to get paid) + collect (from the upstream merchant). For the merchant who owns the main Service, see wowok-provider. For the process operators executing the workflow, see wowok-collaborator. Use when: User wants to present their service to a Demand (open RFP or gated call); User is a sub-order provider / supplier fulfilling part of a transaction; User wants to collect settlement from an upstream merchant; User mentions \"supplier\", \"sub-order\", \"demand\", \"present service\", \"RFP\", \"fulfill sub-order\"."
+metadata:
+  version: "2.0.0"
+  role: supplier
+  related: "wowok-provider, wowok-machine, wowok-messenger"
 ---
 
 # WoWok Supplier Guide

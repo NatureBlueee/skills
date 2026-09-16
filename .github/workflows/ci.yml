@@ -1,0 +1,40 @@
+name: skills
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  # CI must not touch the runner's client configs or install the MCP server.
+  WOWOK_SKILLS_NO_MCP: '1'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci` also runs postinstall → a real end-to-end smoke test of the
+      # installer against the runner's home directory.
+      - run: npm ci
+
+      - name: Type-check + build
+        run: npm run build
+
+      - name: SKILL.md conformance (Agent Skills spec)
+        run: npm run audit:skills
+
+      - name: Skill length budget
+        run: npm run audit:length
+
+      - name: Verify the installer is idempotent
+        run: |
+          node scripts/install.js
+          node scripts/install.js
+          node dist/cli.js doctor

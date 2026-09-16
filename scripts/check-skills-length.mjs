@@ -52,8 +52,14 @@ function findSkillFiles(root) {
         const fullPath = join(root, entry);
         const stat = statSync(fullPath);
         if (stat.isDirectory()) {
-            // Skip node_modules, .git, .trae, scripts, src, and install-target copies (.claude, .agents)
-            if (["node_modules", ".git", ".trae", "scripts", "src", ".claude", ".agents"].includes(entry)) continue;
+            // Skip tooling dirs and every client install-target copy
+            // (.claude/.agents/.cursor/.codex/.trae/...) — those are generated.
+            const SKIP = [
+                "node_modules", ".git", "dist", "scripts", "src",
+                ".claude", ".agents", ".cursor", ".codex", ".codebuddy",
+                ".windsurf", ".qoder", ".roo", ".cline", ".kilo", ".github", ".trae",
+            ];
+            if (SKIP.includes(entry)) continue;
             results.push(...findSkillFiles(fullPath));
         } else if (entry === "SKILL.md") {
             results.push(fullPath);

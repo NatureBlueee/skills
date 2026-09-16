@@ -1,23 +1,10 @@
 ---
 name: wowok-order
-description: |
-  WoWok Buyer Guide — TWO lifecycles in one skill:
-
-  1. PROSPECT (prospect due diligence, pre-purchase): E1-E11 due diligence + consensus
-     building + trust-score synthesis, ending in a buy/no-buy decision.
-  2. CUSTOMER (in-order fulfillment, post-order): order creation, progress advancement,
-     fund management, and arbitration.
-
-  For suppliers presenting to Demands, see wowok-supplier. For process
-  operators executing workflow forwards, see wowok-collaborator.
-when_to_use:
-  - User is a potential buyer evaluating a service BEFORE purchasing (prospect)
-  - User is a customer/buyer placing or managing orders (customer)
-  - User wants to evaluate services, WIP, guards, allocations, arbitration
-  - User needs to communicate with sellers via Messenger
-  - User asks about order progress, payments, or refunds
-  - User wants to file disputes or arbitration claims
-  - User mentions "buy", "order", "purchase", "refund", "dispute", "arbitration", "due diligence"
+description: "WoWok Buyer Guide — TWO lifecycles in one skill: 1. PROSPECT (prospect due diligence, pre-purchase): E1-E11 due diligence + consensus building + trust-score synthesis, ending in a buy/no-buy decision. 2. CUSTOMER (in-order fulfillment, post-order): order creation, progress advancement, fund management, and arbitration. For suppliers presenting to Demands, see wowok-supplier. For process operators executing workflow forwards, see wowok-collaborator. Use when: User is a potential buyer evaluating a service BEFORE purchasing (prospect); User is a customer/buyer placing or managing orders (customer); User wants to evaluate services, WIP, guards, allocations, arbitration; User needs to communicate with sellers via Messenger; User asks about order progress, payments, or refunds; User wants to file disputes or arbitration claims; User mentions \"buy\", \"order\", \"purchase\", \"refund\", \"dispute\", \"arbitration\", \"due diligence\"."
+metadata:
+  version: "2.0.0"
+  role: customer
+  related: "wowok-provider, wowok-arbitrator, wowok-messenger"
 ---
 
 # WoWok Buyer Guide

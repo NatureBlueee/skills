@@ -1,30 +1,10 @@
 ---
 name: wowok-governance
-description: |
-  WoWok Governance — the canonical skill for on-chain permission, data, and
-  financial governance: the account that OWNS the objects keeps them healthy
-  after setup.
-
-  Covers Permission lifecycle (indexes, role assignment, entity table, admin
-  transfer), Treasury/Allocation fund stewardship (deposit/withdraw, history
-  audit, unclaimed payments), and Personal data boundaries (public identity,
-  profile records). Governance is a continuous loop — inventory, decide,
-  execute, audit — not a one-time setup.
-
-  For building services, see wowok-provider. For market operations, see
-  wowok-market.
-when_to_use:
-  - User wants to manage who can operate their objects (permission indexes, entity table)
-  - User wants to deposit/withdraw treasury funds or audit fund history
-  - User has unclaimed payments or wants to check claimable balances
-  - User wants to update their public on-chain profile or personal data
-  - User mentions "permission", "treasury", "governance", "manage assets", "audit funds"
-role: shared
-loading: on-demand
-related:
-  - wowok-provider
-  - wowok-market
-  - wowok-messenger
+description: "WoWok Governance — the canonical skill for on-chain permission, data, and financial governance: the account that OWNS the objects keeps them healthy after setup. Covers Permission lifecycle (indexes, role assignment, entity table, admin transfer), Treasury/Allocation fund stewardship (deposit/withdraw, history audit, unclaimed payments), and Personal data boundaries (public identity, profile records). Governance is a continuous loop — inventory, decide, execute, audit — not a one-time setup. For building services, see wowok-provider. For market operations, see wowok-market. Use when: User wants to manage who can operate their objects (permission indexes, entity table); User wants to deposit/withdraw treasury funds or audit fund history; User has unclaimed payments or wants to check claimable balances; User wants to update their public on-chain profile or personal data; User mentions \"permission\", \"treasury\", \"governance\", \"manage assets\", \"audit funds\"."
+metadata:
+  version: "1.0.0"
+  role: shared
+  related: "wowok-provider, wowok-market, wowok-messenger"
 ---
 
 # WoWok Governance Guide

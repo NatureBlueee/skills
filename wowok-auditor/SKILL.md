@@ -1,22 +1,10 @@
 ---
 name: wowok-auditor
-description: |
-  WoWok pre-publish auditor — the static-analysis Skill that verifies
-  Guard completeness, Machine soundness, fund-flow safety, permission
-  consistency, and publish readiness BEFORE any irreversible publish
-  operation (Service publish, Machine publish, Allocator binding freeze).
-
-  This Skill is the knowledge base for the L4 Harness Verify Loop. It does
-  not mutate objects. It queries, exports, and rules — emitting a
-  pass/warn/fail audit report plus a publish decision.
-when_to_use:
-  - User is about to publish a Service, Machine, or lock an Allocator set
-  - User asks to "audit", "verify", "review", "check before publish"
-  - L4 Harness Verify Loop is invoked before an irreversible operation
-  - User mentions "fund flow", "refund path", "allocation sum", "guard completeness"
-  - User mentions "machine cycle", "unreachable state", "permission index conflict"
-  - User wants a pre-publish go/no-go decision
-  - A publish operation failed and root-cause analysis is needed
+description: "WoWok pre-publish auditor — the static-analysis Skill that verifies Guard completeness, Machine soundness, fund-flow safety, permission consistency, and publish readiness BEFORE any irreversible publish operation (Service publish, Machine publish, Allocator binding freeze). This Skill is the knowledge base for the L4 Harness Verify Loop. It does not mutate objects. It queries, exports, and rules — emitting a pass/warn/fail audit report plus a publish decision. Use when: User is about to publish a Service, Machine, or lock an Allocator set; User asks to \"audit\", \"verify\", \"review\", \"check before publish\"; L4 Harness Verify Loop is invoked before an irreversible operation; User mentions \"fund flow\", \"refund path\", \"allocation sum\", \"guard completeness\"; User mentions \"machine cycle\", \"unreachable state\", \"permission index conflict\"; User wants a pre-publish go/no-go decision; A publish operation failed and root-cause analysis is needed."
+metadata:
+  version: "2.0.0"
+  role: shared
+  related: "wowok-planner, wowok-provider, wowok-machine"
 ---
 
 # WoWok Pre-Publish Auditor
