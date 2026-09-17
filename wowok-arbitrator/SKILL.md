@@ -233,6 +233,6 @@ Providers list approved Arbitrations in their Service. Customers choose from thi
 
 ### Common Pitfalls
 
-Served by `wowok_buildin_info` action='common mistakes' + MCP `schema_query` action='get_safety_rules'. Key ones: paused Arbitration rejects disputes silently (verify `pause: false`); wrong Guard design is immutable (test with `gen_passport` first); non-finished withdrawal has a 30-day lock; always `verify_wts` before ruling.
+Served by `wowok_buildin_info` info='common mistakes' + MCP `schema_query` action='get_safety_rules'. Key ones: paused Arbitration rejects disputes silently (verify `pause: false`); wrong Guard design is immutable (test with `gen_passport` first); non-finished withdrawal has a 30-day lock; always `verify_wts` before ruling.
 
 ---
