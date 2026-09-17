@@ -176,7 +176,7 @@ Foundation = immutable on-chain rules (Phase 1). Messenger = encrypted, self-ver
 
 ### 2.1 Send Privacy Info
 
-Contact `ims[]` from E8. Send E10 info via `messenger_operation` → `send_message`. **Messenger only — never on-chain.** Explicit user confirmation per item. After sending, persist any newly-provided value via `local_info_operation` `add` (so future orders auto-fill).
+Contact `ims[]` from E8. Send E10 info via `messenger_operation` → `send_required_info` (LocalInfo field names assembled in one E2E message), or `send_message` for free-form text. **Messenger only — never on-chain.** Explicit user confirmation per item. After sending, persist any newly-provided value via `local_info_operation` `add` (so future orders auto-fill).
 
 ### 2.2 Negotiate
 

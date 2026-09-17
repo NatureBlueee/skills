@@ -108,7 +108,7 @@ Once R1-R7 confirmed, execute in strict order. Sub-tools are invoked via `wowok(
 
 **STEP 5 — Revenue (order_allocators + Treasury)**: `onchain_operations` service order_allocators (L1-locked). Mode: amount / rate (bps sum=10000) / surplus. Recipient: `{Entity}` / `{GuardIdentifier}` / `{Signer}`. Personal → Permission owner (Entity); Org → Treasury (`Treasury.receive` index 253). Offer new/select Treasury (query onchain_objects type=treasury).
 
-**STEP 6 — Customer Service (Contact + Messenger)**: `onchain_operations` contact (ims) + `account_operation` messenger (`enabled: true`). Contact mutable; `im_add`/`im_remove` need permission index 453 (CONTACT_IM). Anti-spam profiles: Open / Guarded / Closed / Defensive. Bind `onchain_operations` service `um` (if customer_required).
+**STEP 6 — Customer Service (Contact + Messenger)**: `onchain_operations` contact (`ims` with op `add`/`set`/`remove`/`clear`) + `account_operation` messenger (`enabled: true`). Contact mutable; IM mutations need permission index 453 (CONTACT_IM) and emit no events. Anti-spam profiles: Open / Guarded / Closed / Defensive. Bind `onchain_operations` service `um` (if customer_required).
 
 **STEP 7 — Trust (Arbitration + compensation_fund)**: REUSE third-party Arbitration (MUST NOT share Service's Permission — E_ARBITRATION_PERMISSION_CONFLICT 33; don't create your own). `compensation_fund_add` (internal Balance<T>, not Treasury); fund>0 requires non-empty arbitrations (E_ARBITRATION_NOT_SET_WITH_COMPENSATION_FUND 25); withdraw needs bPaused + lock elapsed.
 

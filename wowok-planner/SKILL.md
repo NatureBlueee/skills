@@ -92,4 +92,4 @@ Each object has: `id`, `type`, `status` (planned/created/published), `reversible
 5. **Contact (customer service)** is configured before Service publish — `Service.um → Contact → ims[]`, with the local account enabled as messenger and anti-spam set.
 6. **Arbitration is third-party and before publish** — `arbitration.permission != service.permission` (`E_ARBITRATION_PERMISSION_CONFLICT`); `compensation_fund > 0` requires non-empty `arbitrations` (`E_ARBITRATION_NOT_SET_WITH_COMPENSATION_FUND`).
 
-These rules are the single source of truth for the dependency chain; the phase list above is their concrete serialization. Hand-off to `wowok-onboard` (Review opening + 12 rounds) follows this same chain.
+These rules are the single source of truth for the dependency chain; the phase list above is their concrete serialization. Hand-off to `wowok-onboard` (Review opening + at most 8 business questions) follows this same chain.

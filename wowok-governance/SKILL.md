@@ -21,7 +21,7 @@ The following content has been pushed down to the MCP knowledge layer and is app
 | Content | Access via (MCP action) | Applied Via |
 |---------|--------------------------|-------------|
 | Permission safety rules (owner/admin/entity hierarchy) | `schema_query` action='get_safety_rules' | `onchain_operations` permission |
-| Treasury/Permission/Personal object schema | `schema_query` action='get_schema' | governance operations |
+| Treasury/Permission/Personal object schema | `schema_query` action='get' name='treasury'/'permission'/'personal' | governance operations |
 | Unclaimed-payment detection | `keeper_operation` (payment_unclaimed scan) | monitor loop |
 | Fund-flow event meanings (TreasuryEvent / AllocationEvent / RewardClaimEvent / RewardFundEvent) | event semantic registry | audit & monitor |
 
@@ -39,9 +39,9 @@ Inventory → Decide → Execute → Audit. Governance objects are LIVE: a permi
 
 A Permission object defines WHO can perform WHICH operations on your business objects (Service / Machine / Treasury …).
 
-- **Indexes** (`permission.index_create`): create named role indexes (e.g. operator=1, finance=2) before assigning.
-- **Role assignment** (`permission.role_assign`): bind indexes onto target objects — a mis-assigned role grants unintended operational authority immediately.
-- **Entity table**: add/remove addresses per index. Review-first: list current entities before mutating (`query_objects` on the Permission object).
+- **Indexes**: role indexes are numeric IDs (custom indexes start at 1000 — built-ins are reserved). Naming one for readability is a `remark {op:'set', index, remark}` write, not a "create index" call.
+- **Grants** (`table` field): assign with `add perm by index` (one index → many entities) or `add perm by entity` (one entity → many indexes); `set` variants REPLACE the existing list. `admin {op:'add'|'remove'|'set'}` controls admins; entity-level hygiene uses `del`/`swap`/`replace`/`copy`. A mis-assigned grant takes effect immediately. Exact op shapes: `schema_query` action='get' name='permission'.
+- **Entity table**: review-first — read the current Permission via `query_toolkit` query_type='onchain_objects' before mutating.
 - **Audit**: `query_toolkit` query_type='onchain_table_item_permission_perm' checks what a specific address may do; query_type='address_profile' shows an address's permission memberships across all objects.
 
 Rules of thumb:
@@ -89,7 +89,7 @@ Governance goals close the loop through three channels:
 
 ## Quick Reference
 
-- Permission: indexes → role assignment → entity table; audit via permission_perm + address_profile.
+- Permission: index remarks → grants (`add perm by index`/`by entity`) → audit via permission_perm + address_profile.
 - Treasury: deposit/withdraw + history audit; external_guard gates withdrawals.
 - Unclaimed payments: keeper scan owns reminders; recipients unwrap CoinWrappers.
 - Personal data: permanently public — review before every write.

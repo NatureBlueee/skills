@@ -12,9 +12,9 @@ metadata:
 End-to-end encrypted messaging with tamper-proof audit trails.
 
 > **Role**: Any WoWok participant
-> All 17 operations with full parameter types and constraints are in the MCP schema (`messenger_operation`). This document focuses on **design decisions and strategy** not captured by the schema.
+> All 18 operations with full parameter types and constraints are in the MCP schema (`messenger_operation`) — query it via `schema_query` action='get' name='messenger_operation' before an unfamiliar call. This document focuses on **design decisions, timing, and cross-role strategy** not captured by the schema.
 > **Related Skills**: [wowok-arbitrator](../wowok-arbitrator/SKILL.md) (WTS evidence in disputes), [wowok-order](../wowok-order/SKILL.md) (customer perspective), [wowok-provider](../wowok-provider/SKILL.md) (service provider perspective)
-> Guard design patterns and safety rules now live in the MCP knowledge layer — query via `schema_query` actions `get_guard_design_patterns` / `get_safety_rules`.
+> Guard design patterns and safety rules live in the MCP knowledge layer — query via `schema_query` actions `get_guard_design_patterns` / `get_safety_rules`; the per-tool action/parameter reference lives there too (`get_tool_reference`).
 
 ---
 
@@ -51,15 +51,15 @@ Before any communication:
 
 ### Account Limit
 
-A single device supports up to 1000 messenger accounts. Exceeding this returns "Maximum 1000 messenger accounts allowed". Use `account_operation → messenger { enabled: false }` to disable unused accounts.
+A single device supports up to 20 messenger accounts (`MAX_MESSENGER_ACCOUNTS`). Exceeding this returns "Maximum 20 messenger accounts allowed, current count: N". Use `account_operation → messenger { enabled: false }` to disable unused accounts.
 
 ### Contact Object (On-Chain Bridge)
 
 The on-chain **Contact** object (`operation_type: "contact"`) is the bridge between a Service and Messenger: `Service.um` → Contact → `ims[]` (Messenger endpoint addresses). Customers query the Contact's `ims[]` to find where to send messages.
 
-**When to create**: Before Service publish, when `customer_required` is set (Service.um must point to a Contact). Reuse an existing Contact if you serve multiple Services with the same support channel.
+**When to create**: before Service publish, when `customer_required` is set (Service.um must point to a Contact). Reuse one Contact across multiple Services sharing the same support channel.
 
-**Lifecycle**: Contact is mutable (unlike Proof/Guard). IM mutations (`onchain_operations` contact with `ims: {op:'add'|'set'|'remove'|'clear', im:[...]}`) require permission index 453 (CONTACT_IM). No events emitted on IM mutations — poll `ims[]` field. If Contact is bound to `Permission.um`, clear that binding (permission op: `um: null`) BEFORE deleting the Contact (else dangling pointer). Full field constraints: MCP `schema_query` action='get' name='contact'.
+**Timing/gotchas (the mutable-object discipline)**: Contact stays mutable (unlike Proof/Guard); IM mutations require built-in permission index 453 (CONTACT_IM) and emit no events — re-poll `ims[]` after changing it. Before deleting a Contact bound as `Service.um`, clear the binding first or you leave a dangling pointer. Op shapes, limits, and field constraints are authoritative in the schema — `schema_query` action='get' name='contact'.
 
 ---
 
@@ -73,19 +73,31 @@ Two approaches, depending on need:
 
 - **Quick glance** — `watch_conversations` with `unreadOnly: true` lists all conversations with unread messages, sorted by activity. Each conversation shows a preview of the last messages.
 - **Deep dive** — `watch_messages` with a specific `peerAddress` to view the full conversation with a particular counterparty. Supports keyword search, time-range filtering, direction filter, and status filter.
-- **Server sync** — `pull_messages` fetches the latest messages from the server into local storage (optional `limit` caps batch size). Use this first when the local view looks stale (e.g. after downtime or on a new device session), then read via `watch_conversations` / `watch_messages`.
+- **Server sync** — `pull_messages` fetches the latest messages from the server into local storage (optional `limit` caps batch size). Use this first when the local view looks stale (e.g. after downtime or on a new device session), then read via `watch_conversations` / `watch_messages`. Pass `allAccounts: true` (or `accounts: [...]`, optional `concurrency`, default 5) to fan out across every messenger-enabled account in one call — the result is one entry per account `{account, pulled, messages, error?}` with per-account failure isolation.
+
+**Read boundary for attachments**: Attachment messages (those with `zipMetadata`) never expose their base64 payload in `watch_messages` / `watch_conversations` / `pull_messages` / `search_messages` output — `plaintext` is omitted and a byte-free `attachment` descriptor is attached instead (`kind`: image/video/audio/voice/file/wts/wip, `fileName`, `mimeType`, `size`, optional `caption`/`durationMs`/`width`/`height`). This prevents multi-megabyte base64 blobs from flooding every read. Bytes are fetched on demand only (see Save Attachments below).
 
 **Design note**: By default, retrieving messages auto-marks them as viewed (`viewedAt` timestamp). Set `skipAutoMarkViewed: true` if you want to peek without marking read.
 
 ### Send Messages
 
-Plain text via `send_message`; files (WTS, WIP, ZIP) via `send_file`.
+Plain text via `send_message`; files and media (images, audio, video, voice, documents, WTS/WIP evidence) via `send_file`.
 
 **First-time contact with a stranger**: You get exactly one message. Make it count — include who you are, why you're contacting them, and what you need. After the recipient replies, you're auto-added to their friends list and can message freely.
 
 **Guard-protected recipients**: If the recipient has disabled stranger messages, the rejection response includes their `guard_list`. Obtain a passport from one of those guards (`gen_passport` via `onchain_operations`), then resend with `guardAddress` + `passportAddress`.
 
-**ZIP file attachments**: Use `send_file` for file delivery. Recipients extract via `extract_zip_messages`. The file is encrypted end-to-end; `zipMetadata` tracks download status locally.
+**Attachments (envelope v2)**: `send_file` transports the file as an E2EE attachment envelope — a zip container with an encrypted `.wowok-manifest.json` (original file name, MIME, kind, caption, media metadata) plus a `payload/<original-name>` entry. The server only sees the unchanged `zipMetadata` (transport file name + size + sha256 + wts/wip/zip class); media (jpg/mp4/webm/…) is stored uncompressed, documents and evidence are deflated. Options: `kind` (media type is auto-inferred from extension; pass `kind: "voice"` explicitly for voice messages — webm cannot be distinguished from video automatically), `mimeType`, `caption` (E2EE, invisible to the server), `durationMs`/`width`/`height`. Old single-entry zips without a manifest remain readable forever (extension/type inference).
+
+**Structured sends**:
+- `send_required_info` — the dedicated path for a Service's `customer_required` fields: pass LocalInfo field names (`fields: ['phone','shipping_address']`) and the op assembles `field: value` lines in one E2E message (explicit `content` overrides; missing fields must be added first via `local_info_operation`). Prefer it over hand-formatting `send_message` — the result also reports `sent_fields`. Never send without the user's per-item confirmation.
+- Quote-reply: pass `options.replyTo: {messageId}` (same conversation; the id must exist in local storage) instead of hand-quoting text.
+- Goal-linked acts: when an evidence-bearing act belongs to an active Goal (e.g. submitting a WTS/evidence file via `send_file`, or anchoring via `proof_message`), stamp `goal_id` so it is recorded as communication evidence on the goal's TaskProcess — omit it for ordinary chatter.
+
+### Save Attachments
+
+- `save_attachment` with `{account?, messageId, outputDir?, saveAs?}` — decode the attachment and persist the **original file** (transport `.zip` suffix stripped; wts/wip keep their extension). Defaults to `<workspace>/attachments`; filename collisions get a ` (1)` suffix; returns the absolute path. The zip blob is sha256-verified against `zipMetadata.fileHash` before extraction. This is the replacement for the retired `extract_zip_messages` — to verify an incoming WTS, save it first, then call `verify_wts` on the returned path.
+- Desktop clients additionally have an in-memory read bridge for inline media rendering (no temp files); AI flows use `save_attachment`.
 
 ### Mark as Read
 
@@ -138,21 +150,11 @@ The optimal configuration depends on your role and openness needs:
 
 ### Strategy: Guard List Design
 
-The Guard list is where anti-spam becomes programmable. A Guard validates that a stranger **meets a verifiable condition** before allowing their message through.
+The Guard list is where anti-spam becomes programmable. A Guard validates that a stranger **meets a verifiable condition** before allowing their message through (token/reputation/order/passport/payment gates — the design catalog with table shapes and query instructions lives in the MCP knowledge layer: `schema_query` action='get_guard_design_patterns'; do not re-derive Guard logic here).
 
-**Common Guard designs for messenger**:
+**`passportValiditySeconds` trade-off**: Short (e.g. 60s) = higher security, re-verification per message. Long (e.g. 7 days) = better UX, one passport covers a week. Match to data volatility: payment-based guards tolerate longer durations; order-state guards should stay short (order state changes). Bounds (10s–10y) and the max-10 list size are enforced by the schema.
 
-| Guard Type | What It Verifies | Example Use |
-|------------|-----------------|-------------|
-| Token-gated | Sender holds a specific token/NFT | Premium customer community |
-| Reputation | Sender's `personal` profile has ≥N likes | Verified reputation threshold |
-| Order-based | Sender has an active order on your Service | Only current customers can message |
-| Passport-based | Sender holds a valid passport from a trusted issuer | Whitelist of partner organizations |
-| Payment | Sender has made a minimum payment | Paid consultation access |
-
-**`passportValiditySeconds` trade-off**: Short (60s) = higher security, re-verification per message. Long (7 days) = better UX, one passport covers a week. Match to your Guard's use case: payment-based guards can use longer durations; order-status guards should use shorter durations (order state changes).
-
-**Multiple guards**: Different guards can serve different purposes. A provider might use: (1) order-based guard for existing customers, (2) token-gated guard for premium access — both listed, either suffices for message delivery.
+**Multiple guards**: listed guards are alternatives, not conjunctions — a passport from ANY one passes delivery. Use them to open different audience doors (e.g. one for existing customers, one for token holders).
 
 ### Strategy: Troubleshooting Anti-Spam Issues
 
@@ -166,16 +168,9 @@ The Guard list is where anti-spam becomes programmable. A Guard validates that a
 
 ### Strategy: Filtering Messages by Source
 
-`watch_messages` supports `listFilterMode` to segment your inbox by relationship type:
+`watch_messages` segments the inbox by relationship via `listFilterMode` (`friends` / `guard` / `stranger` / `any`, default any; `customListFilter` adds include/exclude lists — exact semantics in the schema).
 
-- `friends` — only messages from your friends list
-- `guard` — only messages from guard-verified senders
-- `stranger` — only messages from unknown senders (highest priority for review)
-- `any` — all messages (default)
-
-Combine with `customListFilter` for fine-grained include/exclude logic.
-
-**Practical use**: A service provider checking their inbox can first scan `listFilterMode: "friends"` for known-customer messages (low risk), then `listFilterMode: "stranger"` for new-customer inquiries (need attention).
+**Operational rhythm**: a service provider triaging inbox first scans `friends` (known customers, low risk), then `stranger` (new inquiries need attention); guard-verified traffic is checked last.
 
 ---
 
@@ -187,7 +182,7 @@ A WTS file is a **tamper-proof, self-verifying export** of a continuous conversa
 
 ### The Workflow
 
-When a dispute requires evidence: (1) `generate_wts` → export messages by time/messageId/seqIndex range; (2) `sign_wts` → add your Falcon512 signature (both parties can sign); (3) `verify_wts` → validate hash chain, continuity, and all signatures; (4) `wts2html` → (optional) convert to human-readable HTML; (5) `send_file` → submit signed WTS to the arbitrator via messenger.
+When a dispute requires evidence: (1) `generate_wts` → export messages by time/messageId/seqIndex range — each WTS file is written **together with a human-readable HTML companion** (`htmlFiles`; no separate conversion needed); (2) `sign_wts` → add your Falcon512 signature (both parties can sign); (3) `verify_wts` → validate hash chain, continuity, and all signatures; (4) `wts2html` → only if you need a custom theme/title or a standalone re-render (it always writes files); (5) `send_file` → submit the signed WTS to the arbitrator via messenger (stamp the active goal's `goal_id`).
 
 > **Key design decision**: Include the **full conversation** when generating WTS for arbitration — not just favorable messages. The arbitrator needs to see who said what, who acknowledged what, and the exact sequence. Selective exports undermine your credibility.
 
@@ -207,7 +202,7 @@ When a dispute requires evidence: (1) `generate_wts` → export messages by time
 
 ## Messenger Across Roles
 
-**Customer**: Pre-order inquiry (`send_message` to provider) → submit required info (`customer_required` fields) → track progress (`watch_messages`) → raise dispute (`generate_wts` + `sign_wts` + `send_file` to arbitrator). Full workflow: [wowok-order](../wowok-order/SKILL.md).
+**Customer**: Pre-order inquiry (`send_message` to provider) → submit required info (`send_required_info` over the `customer_required` fields) → track progress (`watch_messages`) → raise dispute (`generate_wts` + `sign_wts` + `send_file` to arbitrator). Full workflow: [wowok-order](../wowok-order/SKILL.md).
 
 **Service Provider**: Monitor inquiries (`watch_conversations` with `unreadOnly` or `listFilterMode: "stranger"`) → respond to customers (reply auto-adds to friends) → request customer info → document agreements (creates evidence trail) → dispute defense (`generate_wts` + `sign_wts` + `send_file`). Full workflow: [wowok-provider](../wowok-provider/SKILL.md).
 
